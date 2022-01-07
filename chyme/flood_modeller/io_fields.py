@@ -377,17 +377,20 @@ class DataRow:
             remainder of the data file can be parsed
 
     """
-    def __init__(self, fields):
+    def __init__(self, fields, *, condition=lambda x: True):
         """Constructor.
 
         Args: 
             fields: a list of field objects (expected to be classes
                 derived from FixedDataField) that describe the data on 
                 the line
+            condition: a lambda that returns whether this table should be 
+                read given the DataFileUnit object
 
         """
         self.fields = fields
         self.apply_required = any([x.apply_required for x in self.fields])
+        self.condition = condition
 
     def read(self, unit, line_iter):
         """Read the line from the file data.
@@ -468,7 +471,9 @@ class DataTable:
                  attribute_name,
                  row_count_attribute_name,
                  row_type_name,
-                 row_spec):
+                 row_spec,
+                 *,
+                 condition=lambda x: True):
         """Constructor.
 
         Args:
@@ -479,12 +484,15 @@ class DataTable:
                 representing each row.
             row_spec: a DataRow object (or similar) that represents a single 
                 row of the table.
+            condition: a lambda that returns whether this table should be 
+                read given the DataFileUnit object
         """
         self.attribute_name = attribute_name
         self.row_count_attribute_name = row_count_attribute_name
         self.row_spec = row_spec
         self.RowType = type(row_type_name, (object, ), dict())
         self.apply_required = False # CHECK: do we ever need to apply a table during the parse?
+        self.condition = condition
 
     def read(self, unit, line_iter):
         """Read the table from the file data.

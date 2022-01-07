@@ -52,8 +52,9 @@ class DataFileUnit:
         self.is_valid = True
         self.data = []
         for component in self.components:
-            component_data = component.read(self, line_iter)
-            self.data.append(component_data)
+            if component.condition(self):
+                component_data = component.read(self, line_iter)
+                self.data.append(component_data)
 
     def validate(self):
         for datum in self.data:
@@ -167,6 +168,47 @@ class RiverSectionUnit(DataFileUnit):
     def __init__(self, first_line, second_line):
         super().__init__(first_line, second_line)
 
+class RiverMuskinghamVPMCUnit(DataFileUnit):
+    unit_name = b'RIVER'
+    sub_unit_name = b'MUSK-VPMC'
+    components = [
+        NodeLabelRow(),
+        DataRow([
+            FloatDataField("chainage", 0, 10),
+            FloatDataField("elevation", 10, 10),
+            FloatDataField("slope", 20, 10),
+            FloatDataField("minimum_subnodes", 30, 10),
+            FloatDataField("maximum_subnodes", 40, 10)]),
+        DataRow([Keyword(b'WAVESPEED ATTENUATION')]),
+        DataRow([
+            IntegerDataField("c_row_count", 0, 10, apply_required=True)]),
+        DataTable("c", "c_row_count", "CRowData",
+                  DataRow([
+                      FloatDataField("q", 0, 10),
+                      FloatDataField("c", 10, 10),
+                      FloatDataField("a", 20, 10),
+                      FloatDataField("y", 30, 10)
+                  ])),
+        DataRow([StringDataField("data_type", 0, 10, apply_required=True)]),
+        DataRow([
+            IntegerDataField("vq_row_count", 0, 10, apply_required=True)],
+                condition=lambda x: x.data_type.value == 'VQ RATING'),
+        DataTable("vq", "vq_row_count", "VQRowData",
+                  DataRow([
+                      FloatDataField("v", 0, 10),
+                      FloatDataField("q", 10, 10)]),
+                  condition=lambda x: x.data_type.value == 'VQ RATING'),
+        DataRow([
+            FloatDataField("a", 0, 10),
+            FloatDataField("b", 10, 10),
+            FloatDataField("minimum_velocity", 20, 10),
+            FloatDataField("minimum_discharge", 30, 10)],
+                condition=lambda x: x.data_type.value == 'VQ POWER L'),
+    ]
+    reach_unit = True
+
+    def __init__(self, first_line, second_line):
+        super().__init__(first_line, second_line)
 
 class RiverCESSectionUnit(DataFileUnit):
     unit_name = b'RIVER'
@@ -183,6 +225,7 @@ class RiverUnit:
     subunits = [
         RiverSectionUnit,
         RiverCESSectionUnit,
+        RiverMuskinghamVPMCUnit,
     ]
     
 class DataFile:
