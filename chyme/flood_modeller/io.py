@@ -27,26 +27,28 @@ class DataFileUnit:
         if second_line is not None:
             self.l2comment = second_line.removeprefix(self.sub_unit_name)
         self.is_valid = False
+        self.node_labels = []
 
     def __bool__(self):
         return self.is_valid
 
     def name(self):
-        if hasattr(self, 'node_label'):
-            return self.node_label
-        elif hasattr(self, 'node_label_0'):
-            return self.node_label_0
-        else:
-            raise RuntimeError("Could not get name of unit.")
+        return self.node_labels[0]
+    #     if hasattr(self, 'node_label'):
+    #         return self.node_label
+    #     elif hasattr(self, 'node_label_0'):
+    #         return self.node_label_0
+    #     else:
+    #         raise RuntimeError("Could not get name of unit.")
 
-    def node_labels(self):
-        if hasattr(self, 'node_label'):
-            yield self.node_label
-        else:
-            index = 0
-            while hasattr(self, 'node_label_{}'.format(index)):
-                yield getattr(self, 'node_label_{}'.format(index))
-                index += 1
+    # def node_labels(self):
+    #     if hasattr(self, 'node_label'):
+    #         yield self.node_label
+    #     else:
+    #         index = 0
+    #         while hasattr(self, 'node_label_{}'.format(index)):
+    #             yield getattr(self, 'node_label_{}'.format(index))
+    #             index += 1
         
     def read(self, line_iter):
         self.is_valid = True
@@ -106,7 +108,7 @@ class OpenJunctionUnit(DataFileUnit):
     unit_name = b'JUNCTION'
     sub_unit_name = b'OPEN'
     components = [
-        NodeLabelRow(count=-1),
+        NodeLabelRow(count=0),
     ]
     reach_unit = False
         
@@ -114,7 +116,7 @@ class EnergyJunctionUnit(DataFileUnit):
     unit_name = b'JUNCTION'
     sub_unit_name = b'ENERGY'
     components = [
-        NodeLabelRow(count=-1),
+        NodeLabelRow(count=0),
     ]
     reach_unit = False
         

@@ -39,23 +39,27 @@ class FieldData:
 
     def apply(self, obj):
         if self.field.attribute_name is not None:
-            setattr(obj, self.field.attribute_name, self._value)
+            if self.field.attribute_index is None:
+                setattr(obj, self.field.attribute_name, self._value)
+            else:
+                if not hasattr(obj, self.field.attribute_name):
+                    setattr(obj, self.field.attribute_name, [])
+                obj_list = getattr(obj, self.field.attribute_name)
+                while len(obj_list) <= self.field.attribute_index:
+                    obj_list.append(None)
+                obj_list[self.field.attribute_index] = self._value
         
     def write(self, out_data):
         raise NotImplementedError()
 
-    def __getattr__(self, name):
-        if name == 'value':
-            return self._value
-        else:
-            raise AttributeError(obj=self, name=name)
+    @property
+    def value(self):
+        return self._value
 
-    def __setattr__(self, name, value):
-        if name == 'value':
-            super().__setattr__('_value', value)
-            super().__setattr__('value_str', str(value))
-        else:
-            super().__setattr__(name, value)
+    @value.setter
+    def value(self, in_value):
+        self._value = in_value
+        self.value_str = str(in_value)
 
 class KeywordData(FieldData):
     """A keyword, occupying a full line, that has been read from a DAT

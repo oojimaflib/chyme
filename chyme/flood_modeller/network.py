@@ -27,8 +27,9 @@ class Node(network.Node):
 
     def append_unit(self, unit):
         self.units.append(unit)
-        for node_label in unit.node_labels():
-            self.add_alias(node_label)
+        for node_label in unit.node_labels:
+            if node_label is not None:
+                self.add_alias(node_label)
         
     def merge_with(self, other):
         super().merge_with(other)
@@ -111,12 +112,12 @@ class Network(network.Network):
                 # Zero or more nodes might already exist that are
                 # attached in some way to this unit. Get the list.
                 associated_nodes = []
-                for node_label in unit.node_labels():
+                for node_label in unit.node_labels:
                     match = self.get_matching_node(node_label)
                     if match is not None:
                         associated_nodes.append(match)
 
-                print([n for n in unit.node_labels()], '→', associated_nodes)
+                print([n for n in unit.node_labels], '→', associated_nodes)
                         
                 if len(associated_nodes) == 0:
                     self.nodes.append(Node(unit))

@@ -29,6 +29,7 @@ class DataField:
             completed
     """
     def __init__(self, attribute_name = None, *,
+                 attribute_index = None,
                  default_str = '',
                  apply_required = False):
         """Constructor.
@@ -43,6 +44,7 @@ class DataField:
                 completed
         """
         self.attribute_name = attribute_name
+        self.attribute_index = attribute_index
         self.default_str = default_str
         self.apply_required = apply_required
 
@@ -416,51 +418,29 @@ class NodeLabelRow(DataRow):
     """Class representing a row/line containing a list of node labels.
 
     """
-    def __init__(self, *, attribute_name_list = None, count = 1):
+    def __init__(self, *, count = 1):
         """Constructor.
 
         Args:
-            attribute_name_list: list of attribute names for each node label 
-                in the row.
-            count: if attribute_name_list is omitted, the number of node labels
-                in the row.
+            count: the number of node labels in the row.
         """
-        if attribute_name_list is not None:
-            fields = [
-                StringDataField(x, i*12, (i+1)*12, justify_left=True)
-                for (i,x) in enumerate(attribute_name_list)]
-        else:
-            if count > 1:
-                fields = [
-                    StringDataField("node_label_{}".format(i), i*12, (i+1)*12, justify_left=True)
-                    for i in range(0,count)]
-            elif count == 1:
-                fields = [ StringDataField("node_label", 0, 12, justify_left=True) ]
-            else:
-                fields = []
-        super().__init__(fields)
+        self.count = count
+        super().__init__([])
 
     def read(self, unit, line_iter):
         """Read the line from the file data.
         """
-        if len(self.fields) > 0:
-            return super().read(unit, line_iter)
-        else:
-            line = next(line_iter)
-            data = []
-            read_success = True
-            while read_success:
-                i = len(data)
-                field = StringDataField("node_label_{}".format(i), i*12, (i+1)*12, justify_left=True)
-                #print(field.preserve_whitespace)
-                datum = field.read(line)
-                #print('"' + datum.value + '"')
-                if datum.value is not None:
-                    data.append(datum)
-                else:
-                    read_success = False
-            return RowData(data)
-                
+        line = next(line_iter)
+        data = []
+        while self.count == 0 or len(data) < self.count:
+            i = len(data)
+            field = StringDataField("node_labels", i*12, (i+1)*12, justify_left=True, attribute_index=i)
+            datum = field.read(line)
+            if self.count == 0 and datum.value is None:
+                break
+            else:
+                data.append(datum)
+        return RowData(data)
         
 class DataTable:
     """Class representing a table of data in the data file spread over 
