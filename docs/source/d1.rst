@@ -1,0 +1,7 @@
+d1 module
+=========
+
+.. automodule:: d1
+   :members:
+   :undoc-members:
+   :show-inheritance:
