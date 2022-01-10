@@ -14,10 +14,10 @@
 """
 
 from .. import d1
-from .network import Network
+from . import network
 
 class Domain(d1.Domain):
     def __init__(self, dat_filename, ied_filenames = []):
-        net = Network(dat_filename, ied_filenames)
+        net = network.FloodModellerNetwork(dat_filename, ied_filenames)
         super().__init__(net)
 
