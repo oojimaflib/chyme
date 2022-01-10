@@ -15,17 +15,18 @@
 """
 
 from . import core
+from . import units
 from .io_fields import *
 import copy
 
     
-class DataFileUnit:
+class FloodModellerUnitIO:
     def __init__(self, first_line, second_line = None):
         # TODO: split first line by removing self.unit_name from the
         # start and storing the second half and the first-line comment
-        self.l1comment = first_line.removeprefix(self.unit_name)
+        self.line1_comment = first_line.removeprefix(self.unit_name)
         if second_line is not None:
-            self.l2comment = second_line.removeprefix(self.sub_unit_name)
+            self.line2_comment = second_line.removeprefix(self.subunit_name)
         self.is_valid = False
         self.node_labels = []
 
@@ -69,6 +70,9 @@ class DataFileUnit:
             if datum:
                 datum.apply(self)
 
+    def create_unit(self):
+        return self.UnitClass(self)
+                
     def write(self, out_data):
         out_data += self.unit_name + self.l1comment + b'\n'
         if hasattr(self, 'sub_unit_name'):
@@ -76,7 +80,8 @@ class DataFileUnit:
         for datum in self.data:
             datum.write(out_data)
 
-class GeneralUnit(DataFileUnit):
+class GeneralUnitIO(FloodModellerUnitIO):
+    UnitClass = units.GeneralUnit
     unit_name = b''
     components = [
         DataRow([Keyword(b'#REVISION#1')]),
@@ -104,30 +109,40 @@ class GeneralUnit(DataFileUnit):
     def __init__(self, first_line):
         super().__init__(first_line)
 
-class OpenJunctionUnit(DataFileUnit):
+class FloodModellerUnitGroupIO:
+    pass
+        
+class OpenJunctionUnitIO(FloodModellerUnitIO):
+    UnitClass = units.JunctionUnit
     unit_name = b'JUNCTION'
-    sub_unit_name = b'OPEN'
+    subunit_name = b'OPEN'
     components = [
         NodeLabelRow(count=0),
     ]
     reach_unit = False
+    
+    conserve = 'water_level'
         
-class EnergyJunctionUnit(DataFileUnit):
+class EnergyJunctionUnitIO(FloodModellerUnitIO):
+    UnitClass = units.JunctionUnit
     unit_name = b'JUNCTION'
-    sub_unit_name = b'ENERGY'
+    subunit_name = b'ENERGY'
     components = [
         NodeLabelRow(count=0),
     ]
     reach_unit = False
+
+    conserve = 'total_energy'
         
-class JunctionUnit(DataFileUnit):
+class JunctionUnitGroupIO(FloodModellerUnitGroupIO):
     unit_name = b'JUNCTION'
     subunits = [
-        OpenJunctionUnit,
-        EnergyJunctionUnit
+        OpenJunctionUnitIO,
+        EnergyJunctionUnitIO
     ]
         
-class InterpolateUnit(DataFileUnit):
+class InterpolateUnitIO(FloodModellerUnitIO):
+    UnitClass = units.InterpolateUnit
     unit_name = b'INTERPOLATE'
     components = [
         NodeLabelRow(),
@@ -141,9 +156,10 @@ class InterpolateUnit(DataFileUnit):
     def __init__(self, first_line):
         super().__init__(first_line)
 
-class RiverSectionUnit(DataFileUnit):
+class RiverSectionUnitIO(FloodModellerUnitIO):
+    UnitClass = units.RiverSectionUnit
     unit_name = b'RIVER'
-    sub_unit_name = b'SECTION'
+    subunit_name = b'SECTION'
     components = [
         NodeLabelRow(count=7),
         DataRow([
@@ -170,9 +186,10 @@ class RiverSectionUnit(DataFileUnit):
     def __init__(self, first_line, second_line):
         super().__init__(first_line, second_line)
 
-class RiverMuskinghamVPMCUnit(DataFileUnit):
+class RiverMuskinghamVPMCUnitIO(FloodModellerUnitIO):
+    UnitClass = units.MuskinghamVPMCUnit
     unit_name = b'RIVER'
-    sub_unit_name = b'MUSK-VPMC'
+    subunit_name = b'MUSK-VPMC'
     components = [
         NodeLabelRow(),
         DataRow([
@@ -212,17 +229,17 @@ class RiverMuskinghamVPMCUnit(DataFileUnit):
     def __init__(self, first_line, second_line):
         super().__init__(first_line, second_line)
 
-class RiverCESSectionUnit(DataFileUnit):
+class RiverCESSectionUnitIO(FloodModellerUnitIO):
+    UnitClass = units.CESSectionUnit
     unit_name = b'RIVER'
-    sub_unit_name = b'CES SECTION'
+    subunit_name = b'CES SECTION'
     components = []
     reach_unit = True
     
     def __init__(self, first_line, second_line):
         super().__init__(first_line, second_line)
         
-        
-class RiverUnit:
+class RiverUnitGroupIO(FloodModellerUnitGroupIO):
     unit_name = b'RIVER'
     subunits = [
         RiverSectionUnit,
@@ -230,93 +247,3 @@ class RiverUnit:
         RiverMuskinghamVPMCUnit,
     ]
     
-class DataFile:
-    valid_units = [
-        InterpolateUnit,
-        RiverUnit,
-        JunctionUnit,
-    ]
-    
-    def __init__(self, filename):
-        with open(filename, 'rb', buffering=0) as infile:
-            self.data = bytearray(infile.readall())
-
-    def read(self):
-        line_iter = self.lines()
-        next_line = next(line_iter)
-        self.general = GeneralUnit(next_line)
-        self.general.read(line_iter)
-
-        self.units = []
-        next_line = next(line_iter)
-        while next_line.removeprefix(b'INITIAL CONDITIONS') == next_line:
-            line_valid = False
-            for Unit in self.valid_units:
-                if next_line.removeprefix(Unit.unit_name) != next_line:
-                    line_valid = True
-                    if hasattr(Unit, "subunits"):
-                        second_line = next(line_iter)
-                        #print("Second line: {}".format(second_line))
-                        for SubUnit in Unit.subunits:
-                            if second_line.removeprefix(SubUnit.sub_unit_name) != second_line:
-                                self.units.append(SubUnit(next_line, second_line))
-                                self.units[-1].read(line_iter)
-                                #print(self.units[-1])
-                                break
-                    else:
-                        self.units.append(Unit(next_line))
-                        self.units[-1].read(line_iter)
-                        #print(self.units[-1])
-                    break
-
-            if not line_valid:
-                print("Skipping line: {}".format(next_line))
-            next_line = next(line_iter)
-
-    def validate(self):
-        for unit in self.units:
-            unit.validate()
-        self.is_valid = all(self.units)
-        return self.is_valid
-            
-    def apply(self):
-        for unit in self.units:
-            if unit.is_valid:
-                unit.apply()
-
-    def write(self, filename = None):
-        out_data = bytearray()
-        self.general.write(out_data)
-        for unit in self.units:
-            unit.write(out_data)
-        if filename is not None:
-            with open(filename, 'wb') as out_file:
-                out_file.write(out_data)
-        return out_data
-        
-    def lines(self):
-        index = 0
-        line_end = self.data.find(b'\n')
-        if line_end == -1:
-            raise RuntimeError("No newlines in flood modeller file.")
-        if line_end == 0:
-            self.windows_line_endings = True
-        else:
-            if self.data[line_end - 1] == '\r':
-                self.windows_line_endings = True
-            else:
-                self.windows_line_endings = False
-        self.wle_offset = 1
-        if self.windows_line_endings:
-            self.wle_offset = 2
-            
-        while index < len(self.data):
-            yield self.data[index:line_end - self.wle_offset]
-            index = line_end + 1
-            line_end = self.data.find(b'\n', index)
-
-    def get_domain(self):
-        # 1. Read the file into an array of Unit objects
-        # 2. Validate the units and, where possible, create Structure objects
-        # 3. Build the 1D Network and domain
-        pass
