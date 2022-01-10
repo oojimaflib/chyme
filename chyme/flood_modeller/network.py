@@ -14,8 +14,9 @@
 
 """
 
-from . import io
+from . import files
 from .. import network
+from . import units
 
 class Node(network.Node):
     """1D node class representing a node in a Flood Modeller network.
@@ -60,19 +61,20 @@ class Network(network.Network):
         super().__init__()
         
         # Read and validate the data file
-        self.dat_file = io.DataFile(dat_filename)
+        self.dat_file = files.DataFile(dat_filename)
         self.dat_file.read()
         self.dat_file.validate()
         if self.dat_file:
             self.dat_file.apply()
-
+            self.units = self.dat_file.create_units()
+            
         # Loop through the units in the dat file to build the network
         history = []
         chainage = 0.0
         us_node = None
         ds_node = None
-        for unit in self.dat_file.units:
-            if unit.reach_unit:
+        for unit in self.units:
+            if isinstance(unit, units.ReachFormingUnit):
                 # This is a type of unit that can form part of a reach
                 history.append(unit)
                 chainage += unit.chainage
@@ -129,7 +131,7 @@ class Network(network.Network):
 
     def get_matching_node(self, obj=None, *, match_name=True):
         name = None
-        if isinstance(obj, io.DataFileUnit):
+        if isinstance(obj, units.FloodModellerUnit):
             for node in self.nodes:
                 if hasattr(node, "unit") and node.unit == obj:
                     return node

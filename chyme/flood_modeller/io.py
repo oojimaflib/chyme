@@ -25,6 +25,7 @@ class FloodModellerUnitIO:
         # TODO: split first line by removing self.unit_name from the
         # start and storing the second half and the first-line comment
         self.line1_comment = first_line.removeprefix(self.unit_name)
+        self.line2_comment = None
         if second_line is not None:
             self.line2_comment = second_line.removeprefix(self.subunit_name)
         self.is_valid = False
@@ -71,7 +72,7 @@ class FloodModellerUnitIO:
                 datum.apply(self)
 
     def create_unit(self):
-        return self.UnitClass(self)
+        return self.UnitClass(io=self)
                 
     def write(self, out_data):
         out_data += self.unit_name + self.l1comment + b'\n'
@@ -242,8 +243,8 @@ class RiverCESSectionUnitIO(FloodModellerUnitIO):
 class RiverUnitGroupIO(FloodModellerUnitGroupIO):
     unit_name = b'RIVER'
     subunits = [
-        RiverSectionUnit,
-        RiverCESSectionUnit,
-        RiverMuskinghamVPMCUnit,
+        RiverSectionUnitIO,
+        RiverCESSectionUnitIO,
+        RiverMuskinghamVPMCUnitIO,
     ]
     

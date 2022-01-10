@@ -19,9 +19,9 @@ from . import io
 
 class DataFile:
     valid_units = [
-        units.InterpolateUnitIO,
-        units.RiverUnitGroupIO,
-        units.JunctionUnitGroupIO,
+        io.InterpolateUnitIO,
+        io.RiverUnitGroupIO,
+        io.JunctionUnitGroupIO,
     ]
     
     def __init__(self, filename):
@@ -41,7 +41,7 @@ class DataFile:
             for UnitIO in self.valid_units:
                 if next_line.removeprefix(UnitIO.unit_name) != next_line:
                     line_valid = True
-                    if issubclass(UnitIO, FloodModellerUnitGroupIO):
+                    if issubclass(UnitIO, io.FloodModellerUnitGroupIO):
                         second_line = next(line_iter)
                         #print("Second line: {}".format(second_line))
                         for SubUnitIO in UnitIO.subunits:
@@ -51,7 +51,7 @@ class DataFile:
                                 #print(self.units[-1])
                                 break
                     else:
-                        self.units_io.append(Unit(next_line))
+                        self.units_io.append(UnitIO(next_line))
                         self.units_io[-1].read(line_iter)
                         #print(self.units[-1])
                     break
@@ -76,6 +76,7 @@ class DataFile:
         for uio in self.units_io:
             if uio.is_valid:
                 units.append(uio.create_unit())
+        return units
         
                 
     def write(self, filename = None):

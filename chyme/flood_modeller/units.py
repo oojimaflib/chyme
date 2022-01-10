@@ -14,8 +14,6 @@
 
 """
 
-from . import io
-
 class FloodModellerUnit:
     def __init__(self, *args, io, **kwargs):
         self.node_labels = io.node_labels
@@ -50,18 +48,18 @@ class JunctionUnit(FloodModellerUnit):
         self.conserve = io.conserve
 
 class ReachFormingUnit(FloodModellerUnit):
-    def __init__(self, *args, io):
+    def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, **kwargs)
         self.chainage = io.chainage
 
 class InterpolateUnit(ReachFormingUnit):
-    def __init__(self, *args, io):
+    def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, **kwargs)
         self.easting = io.easting
         self.northing = io.northing
 
 class RiverSectionUnit(ReachFormingUnit):
-    def __init__(self, *args, io):
+    def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, **kwargs)
         self.cross_section = []
         for xsp in io.xs:
@@ -71,11 +69,11 @@ class RiverSectionUnit(ReachFormingUnit):
                                        xsp.deactivation_marker))
 
 class MuskinghamVPMCUnit(ReachFormingUnit):
-    def __init__(self, *args, io):
+    def __init__(self, *args, io, **kwargs):
         pass
 
 class CESSectionUnit(ReachFormingUnit):
-    def __init__(self, *args, io):
+    def __init__(self, *args, io, **kwargs):
         pass
 
         
