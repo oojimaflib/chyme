@@ -77,7 +77,6 @@ class FloodModellerNetwork(network.Network):
         self.dat_file.read()
         self.dat_file.validate()
         if self.dat_file:
-            self.dat_file.apply()
             self.units = self.dat_file.create_units()
             
         # Loop through the units in the dat file to build the network

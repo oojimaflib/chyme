@@ -30,6 +30,8 @@ class FloodModellerUnitIO:
             self.line2_comment = second_line.removeprefix(self.subunit_name)
         self.is_valid = False
         self.node_labels = []
+        self.data = []
+        self.values = dict()
 
     def __bool__(self):
         return self.is_valid
@@ -69,11 +71,8 @@ class FloodModellerUnitIO:
     def apply(self):
         for datum in self.data:
             if datum:
-                datum.apply(self)
+                datum.apply(self.values)
 
-    def create_unit(self):
-        return self.UnitClass(io=self)
-                
     def write(self, out_data):
         out_data += self.unit_name + self.l1comment + b'\n'
         if hasattr(self, 'sub_unit_name'):
@@ -112,7 +111,40 @@ class GeneralUnitIO(FloodModellerUnitIO):
 
 class FloodModellerUnitGroupIO:
     pass
-        
+
+class AbstractionUnitIO(FloodModellerUnitIO):
+    UnitClass = units.AbstractionUnit
+    unit_name = b'ABSTRACTION'
+    components = [
+        NodeLabelRow(),
+        DataRow([FreeStringDataField("control_method")]),
+        DataRow([
+            IntegerDataField("ops_row_count", 0, 10, apply_required=True),
+            FloatDataField("time_datum", 10, 10),
+            StringDataField("time_units", 20, 10),
+            StringDataField("repeat_flag", 30, 10)]),
+        DataTable("ops", "ops_row_count",
+                  DataRow([
+                      FloatDataField("time", 0, 10),
+                      StringDataField("mode", 10, 10),
+                      FloatDataField("abstraction", 20, 10)])),
+        DataRow([Keyword(b'RULES')]),
+        DataRow([
+            IntegerDataField("rules_count", 0, 10, apply_required=True),
+            FloatDataField("sample_time", 10, 10),
+            StringDataField("rule_time_units", 20, 10),
+            StringDataField("rule_repeat_flag", 30, 10)]),
+        DataTable("rules", "rules_count", Rule()),
+        DataRow([Keyword(b'TIME RULE DATA SET')]),
+        DataRow([
+            IntegerDataField("app_row_count", 0, 10, apply_required=True)]),
+        DataTable("apps", "app_row_count",
+                  DataRow([
+                      FloatDataField("time", 0, 10),
+                      FreeStringDataField("rules_applied", 10)]))
+    ]
+    reach_unit = False
+
 class OpenJunctionUnitIO(FloodModellerUnitIO):
     UnitClass = units.JunctionUnit
     unit_name = b'JUNCTION'
@@ -170,7 +202,7 @@ class RiverSectionUnitIO(FloodModellerUnitIO):
             StringDataField("undoc2", 30, 10)]),
         DataRow([
             IntegerDataField("xs_row_count", 0, 10, apply_required=True)]),
-        DataTable("xs", "xs_row_count", "XSRowData",
+        DataTable("xs", "xs_row_count",
                   DataRow([
                       FloatDataField("x", 0, 10),
                       FloatDataField("z", 10, 10),
@@ -202,7 +234,7 @@ class RiverMuskinghamVPMCUnitIO(FloodModellerUnitIO):
         DataRow([Keyword(b'WAVESPEED ATTENUATION')]),
         DataRow([
             IntegerDataField("c_row_count", 0, 10, apply_required=True)]),
-        DataTable("c", "c_row_count", "CRowData",
+        DataTable("c", "c_row_count",
                   DataRow([
                       FloatDataField("q", 0, 10),
                       FloatDataField("c", 10, 10),
@@ -213,7 +245,7 @@ class RiverMuskinghamVPMCUnitIO(FloodModellerUnitIO):
         DataRow([
             IntegerDataField("vq_row_count", 0, 10, apply_required=True)],
                 condition=lambda x: x.data_type.value == 'VQ RATING'),
-        DataTable("vq", "vq_row_count", "VQRowData",
+        DataTable("vq", "vq_row_count",
                   DataRow([
                       FloatDataField("v", 0, 10),
                       FloatDataField("q", 10, 10)]),

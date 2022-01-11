@@ -66,16 +66,12 @@ class DataFile:
         self.is_valid = all(self.units_io)
         return self.is_valid
             
-    def apply(self):
-        for uio in self.units_io:
-            if uio.is_valid:
-                uio.apply()
-
     def create_units(self):
         units = []
         for uio in self.units_io:
             if uio.is_valid:
-                units.append(uio.create_unit())
+                uio.apply()
+                units.append(uio.UnitClass(io=uio))
         return units
         
                 

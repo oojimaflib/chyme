@@ -37,17 +37,17 @@ class FieldData:
     def validate(self):
         raise NotImplementedError()
 
-    def apply(self, obj):
+    def apply(self, dict_obj):
         if self.field.attribute_name is not None:
             if self.field.attribute_index is None:
-                setattr(obj, self.field.attribute_name, self._value)
+                dict_obj[self.field.attribute_name] = self._value
             else:
-                if not hasattr(obj, self.field.attribute_name):
-                    setattr(obj, self.field.attribute_name, [])
-                obj_list = getattr(obj, self.field.attribute_name)
-                while len(obj_list) <= self.field.attribute_index:
-                    obj_list.append(None)
-                obj_list[self.field.attribute_index] = self._value
+                if not self.field.attribute_name in dict_obj:
+                    dict_obj[self.field.attribute_name] = []
+                l = dict_obj[self.field.attribute_name]
+                while len(l) <= self.field.attribute_index:
+                    l.append(None)
+                l[self.field.attribute_index] = self._value
         
     def write(self, out_data):
         raise NotImplementedError()
@@ -238,6 +238,31 @@ class RowData:
             datum.write(out_data)
         out_data += b'\n'
         
+class RuleData:
+    def __init__(self, rule_data):
+        self.rule_data = rule_data
+        self.is_valid = False
+
+    def __bool__(self):
+        return self.is_valid
+        
+    def validate(self):
+        for datum in self.rule_data:
+            datum.validate()
+        self.is_valid = all(self.rule_data)
+        return self.is_valid
+
+    def apply(self, obj):
+        for datum in self.rule_data:
+            if datum:
+                datum.apply(obj)
+
+    def write(self, out_data):
+        for datum in self.rule_data:
+            datum.write(out_data)
+            out_data += b'\n'
+        out_data.append(b'END\n')
+        
 class TableData:
     def __init__(self, data_table, rows):
         self.data_table = data_table
@@ -257,10 +282,10 @@ class TableData:
         table_list = []
         for row_data in self.rows:
             if row_data:
-                row_obj = self.data_table.RowType()
+                row_obj = dict()# self.data_table.RowType()
                 row_data.apply(row_obj)
                 table_list.append(row_obj)
-        setattr(obj, self.data_table.attribute_name, table_list)
+        obj[self.data_table.attribute_name] = table_list
         
     def write(self, out_data):
         for row in self.rows:

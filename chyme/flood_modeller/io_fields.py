@@ -31,7 +31,8 @@ class DataField:
     def __init__(self, attribute_name = None, *,
                  attribute_index = None,
                  default_str = '',
-                 apply_required = False):
+                 apply_required = False,
+                 **kwargs):
         """Constructor.
 
         Args:
@@ -101,17 +102,23 @@ class Keyword(DataField):
 
 class FreeStringDataField(DataField):
     """Class representing a variable-length string in a DAT file that occupys 
-    a full line.
+    a full line (or the remainder of a line)
 
     """
-    def __init__(self, attribute_name):
+    def __init__(self,
+                 attribute_name,
+                 index=0,
+                 *args,
+                 **kwargs):
         """Contructor.
 
         Args:
             attribute_name: the name of the attribute that should be set in 
             the calling object.
+            index: the byte index into the line at which the value starts
         """
-        super().__init__()
+        super().__init__(attribute_name, *args, **kwargs)
+        self.index = index
 
     def read(self, data):
         """Read the string from the file data.
@@ -122,7 +129,12 @@ class FreeStringDataField(DataField):
         Returns:
             A FreeStringData object holding the data that was read.
         """
-        return FreeStringData(self, data.decode('latin_1'))
+        if self.index < len(data):
+            value_bytes = data[self.index:]
+        else:
+            value_bytes = b''
+
+        return FreeStringData(self, value_bytes.decode('latin_1'))
 
     def write(self, value, out_data):
         """Write the string to a bytearray.
@@ -177,8 +189,10 @@ class FixedDataField(DataField):
         """
         if self.index + self.width < len(data):
             value_bytes = data[self.index:self.index + self.width]
-        else:
+        elif self.index < len(data):
             value_bytes = data[self.index:]
+        else:
+            value_bytes = b''
             
         return value_bytes.decode('latin_1')
 
@@ -411,9 +425,31 @@ class DataRow:
             data.append(field.read(line))
         for datum in filter(lambda x: x.field.apply_required, data):
             if datum.validate():
-                datum.apply(unit)
+                datum.apply(unit.values)
         return RowData(data)
 
+class Rule(DataRow):
+    """Class representing a sequence of rows/lines containing a logical rule.
+    """
+    def __init__(self):
+        """Constructor.
+        """
+        super().__init__([])
+
+    def read(self, unit, line_iter):
+        """Read the rule from the file data.
+        """
+        data = []
+        while True:
+            line = next(line_iter)
+            if line.removeprefix('END') != line:
+                break
+            i = len(data)
+            field = FreeStringDataField("rule_text", attribute_index=i)
+            data.append(field.read(line))
+        return RuleData(data)
+            
+    
 class NodeLabelRow(DataRow):
     """Class representing a row/line containing a list of node labels.
 
@@ -450,7 +486,7 @@ class DataTable:
     def __init__(self,
                  attribute_name,
                  row_count_attribute_name,
-                 row_type_name,
+                 # row_type_name,
                  row_spec,
                  *,
                  condition=lambda x: True):
@@ -470,7 +506,7 @@ class DataTable:
         self.attribute_name = attribute_name
         self.row_count_attribute_name = row_count_attribute_name
         self.row_spec = row_spec
-        self.RowType = type(row_type_name, (object, ), dict())
+        # self.RowType = type(row_type_name, (object, ), dict())
         self.apply_required = False # CHECK: do we ever need to apply a table during the parse?
         self.condition = condition
 
@@ -486,7 +522,7 @@ class DataTable:
         Returns:
             A TableData object holding the data that was read.
         """        
-        rows_to_read = getattr(unit, self.row_count_attribute_name)
+        rows_to_read = unit.values[self.row_count_attribute_name]
         table = []
         for row_no in range(0, rows_to_read):
             #print("Reading row {}".format(row_no))
