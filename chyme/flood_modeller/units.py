@@ -58,16 +58,6 @@ class InterpolateUnit(ReachFormingUnit):
         self.easting = io.easting
         self.northing = io.northing
 
-class RiverSectionUnit(ReachFormingUnit):
-    def __init__(self, *args, io, **kwargs):
-        super().__init__(*args, io=io, **kwargs)
-        self.cross_section = []
-        for xsp in io.xs:
-            self.cross_section.append((xsp.x, xsp.z, xsp.n, (xsp.panel=='*'),
-                                       xsp.rpl, xsp.bank_marker,
-                                       xsp.easting, xsp.northing,
-                                       xsp.deactivation_marker))
-
 class MuskinghamVPMCUnit(ReachFormingUnit):
     def __init__(self, *args, io, **kwargs):
         pass
@@ -75,5 +65,7 @@ class MuskinghamVPMCUnit(ReachFormingUnit):
 class CESSectionUnit(ReachFormingUnit):
     def __init__(self, *args, io, **kwargs):
         pass
+
+from ._units.RiverSectionUnit import *
 
         

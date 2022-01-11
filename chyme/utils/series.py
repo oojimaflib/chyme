@@ -33,7 +33,8 @@ class Series(MutableSequence):
                  *args,
                  dimensions=None,
                  allow_reverse=None,
-                 allow_repeats=None):
+                 allow_repeats=None,
+                 interpolate_method='linear'):
         """Constructor.
 
         Construct a series from a list of X-Y points.
@@ -42,17 +43,20 @@ class Series(MutableSequence):
             points: a list of points. Each point, pt, in the list is 
                 expected to return an X value from pt[0] and further values 
                 from pt[X].
-            datum: a tuple of offsets by which all the values should be 
+            datum: a list of offsets by which all the values should be 
                 shifted.
-            scale: a tuple of multiplication factors by which the data 
+            scale: a list of multiplication factors by which the data 
                 should be scaled.
             dimensions: the number of dimensions (columns) in the series. 
                 If omitted this is inferred from the first entry in the 
                 points list.
-            allow_reverse: tuple of booleans indicating whether values in 
+            allow_reverse: list of booleans indicating whether values in 
                 this dimension may reverse direction.
-            allow_repeats: tuple of booleans indicating whether values in 
+            allow_repeats: list of booleans indicating whether values in 
                 this dimension may repeat.
+            interpolate_method: approach that should be used for interpolating
+                by the at() method. One of 'linear' (default), or 'stepwise'...
+
         """
         self.points = points
         self.datum = datum
@@ -61,6 +65,13 @@ class Series(MutableSequence):
         self.dimensions = dimensions
         self.allow_reverse = allow_reverse
         self.allow_repeats = allow_repeats
+
+        if interpolate_method == 'linear':
+            self.at = self.linear_interpolate
+        elif interpolate_method == 'stepwise':
+            self.at = self.stepwise_interpolate
+        else:
+            raise SeriesError("Unknown interpolation method.")
 
         if len(self.points) > 0:
             if self.dimensions is None:
@@ -71,16 +82,16 @@ class Series(MutableSequence):
             raise SeriesError("No user-specified dimensionality and no initial data to infer this from.")
 
         if self.datum is None:
-            self.datum = tuple([0.0] * self.dimensions)
+            self.datum = [0.0] * self.dimensions
         if self.scale is None:
-            self.scale = tuple([1.0] * self.dimensions)
+            self.scale = [1.0] * self.dimensions
         
         if self.allow_reverse is None:
-            self.allow_reverse = tuple([False] + [True] * (self.dimensions - 1))
+            self.allow_reverse = [False] + [True] * (self.dimensions - 1)
         if len(self.allow_reverse) != self.dimensions:
             raise SeriesError("Wrong length for allow_reverse argument.")
         if self.allow_repeats is None:
-            self.allow_repeats = tuple([True] * self.dimensions)
+            self.allow_repeats = [True] * self.dimensions
         if len(self.allow_repeats) != self.dimensions:
             raise SeriesError("Wrong length for allow_repeats argument.")
 
@@ -100,13 +111,38 @@ class Series(MutableSequence):
             ', dimensions=' + repr(self.dimensions) + \
             ', allow_reverse=' + repr(self.allow_reverse) + \
             ', allow_repeats=' + repr(self.allow_repeats) + ')'
-                
-    def at(self, xval):
-        """Get the value of the series at an arbitrary x coordinate.
 
-        Requires that self.allow_reverse[0] is True. Performs a linear
-        interpolation. Values below the series range return
-        self[0]. Values above the series range return self[-1].
+    def stepwise_interpolate(self, xval):
+        """Get the value of the series at an arbitrary x coordinate with a
+        stepwise interpolation.
+
+        Requires that self.allow_reverse[0] is False. Values below the
+        series range return self[0]. Values above the series range
+        return self[-1].
+
+        """
+        if self.allow_reverse[0]:
+            raise SeriesError("Can only do at() look-up when x-dimension is increasing.")
+        old_value = None
+        for i in range(0, len(self)):
+            value = self[i]
+            if value[0] == xval:
+                return value
+            elif value[0] > xval:
+                if i > 0:
+                    return [xval] + old_value[1:]
+                else:
+                    return value
+            old_value = value
+        return self[-1]
+    
+    def linear_interpolate(self, xval):
+        """Get the value of the series at an arbitrary x coordinate with a
+        linear interpolation.
+
+        Requires that self.allow_reverse[0] is False. Values below the
+        series range return self[0]. Values above the series range
+        return self[-1].
 
         """
         if self.allow_reverse[0]:
@@ -122,8 +158,8 @@ class Series(MutableSequence):
                     dx1 = value[0] - old_value[0]
                     dx0 = xval - old_value[0]
                     ratio = dx0 / dx1
-                    return tuple([ (value[i] - old_value[i]) * ratio + old_value[i]
-                                   for i in range(0, self.dimensions) ])
+                    return [ (value[i] - old_value[i]) * ratio + old_value[i]
+                             for i in range(0, self.dimensions) ]
                 else:
                     return value
             
@@ -138,13 +174,13 @@ class Series(MutableSequence):
         if isinstance(index, slice):
             result = []
             for pt in self.points[index]:
-                result.append(tuple([ pt[i] * self.scale[i] + self.datum[i]
-                                      for i in range(0,self.dimensions) ]))
+                result.append([ pt[i] * self.scale[i] + self.datum[i]
+                               for i in range(0,self.dimensions) ])
             return result
         else:
             pt = self.points[index]
-            return tuple([ pt[i] * self.scale[i] + self.datum[i]
-                           for i in range(0,self.dimensions) ])
+            return [ pt[i] * self.scale[i] + self.datum[i]
+                     for i in range(0,self.dimensions) ]
 
     def __setitem__(self, index, pt):
         values = [ (pt[i] - self.datum[i]) / self.scale[i]
@@ -214,4 +250,11 @@ class Series(MutableSequence):
                     raise SeriesError("Data in column {} must not repeat.".format(i),
                                       values, after)
         self.points.insert(index, values)
-            
+
+    def pairwise(self):
+        it = iter(self)
+        a = next(it, None)
+        for b in it:
+            yield (a,b)
+            a = b
+
