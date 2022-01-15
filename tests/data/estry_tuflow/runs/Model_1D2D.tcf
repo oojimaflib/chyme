@@ -1,0 +1,72 @@
+!*********************************************************************************************************
+! This tutorial model is documented at http://wiki.tuflow.com/
+! Any comments or feedback, please email support@tuflow.com
+!*********************************************************************************************************
+! The .tcf file defines the model simulation parameters and directs input from other data sources.
+!*********************************************************************************************************
+!_________________________________________________________________________________________________________
+! MODEL INITIALISATION COMMANDS  
+Tutorial Model == ON								! This command is needed to tell TUFLOW that the tutorial model is being run
+GIS Format == SHP									! Specify SHP as the output format for all GIS files. This is the default setting
+SHP Projection == ..\model\gis\Projection.prj 		! This command sets the GIS projection for the TUFLOW Model
+! Write Empty GIS Files == ..\model\gis\empty | SHP	! This command is commented out for this run as it is no longer needed
+
+
+Start 1D Domain
+	!_________________________________________________________________________________________________________________
+	! SIMULATION TIME CONTROL COMMANDS
+	Timestep == 0.75											! Specifies a 1D computational timestep of 0.75 seconds. We will set the 1D timestep to be half the 2D timestep
+
+	!_________________________________________________________________________________________________________________
+	! OUTPUT CONTROL AND FORMAT COMMANDS
+	Output Folder == ..\results\1d								! Specifies the location of the 1D output files
+	Write Check Files == ..\check\1d\							! Specifies the location of the 1D check files and prefixes them with the .tcf filename
+	Output Interval (s) == 180									! Writes the 1D output every 3 minutes. Note the (s) is required to indicate the value is in seconds
+
+	!_________________________________________________________________________________________________________________
+	! 1D NETWORK AND TABLE LINKS
+	Read GIS Network == gis\1d_nwk_M04_culverts_001_L.shp	! Reads the 1d_nwk GIS layer defining culverts within the model 
+	! Read GIS Network == gis\1d_nwk_M02_culverts_001_P.shp	! This GIS layer is commented out / removed from the model as the automated SX boundary links are no longer required
+	Read GIS Network == gis\1d_nwk_M04_channels_001_L.shp	! Reads the 1d_nwk GIS layer defining open channels within the model
+	Read GIS Table Links == xs\1d_xs_M04_creek_001_L.shp	! GIS layer that references cross-sectional data stored in separate csv files
+
+	!_________________________________________________________________________________________________________________
+	! 1D BOUNDARY CONDITIONS
+	Read GIS BC == gis\1d_bc_M04_001_P.shp	! Reads in the 1D boundary conditions
+
+	!_________________________________________________________________________________________________________________
+	! 1D WATER LEVEL LINES
+	Read GIS WLL == gis\1d_wll_M04_001_L.shp			! GIS layers used to display the 1D results in 2D map output result files
+	Read GIS WLL Points == gis\1d_wllp_M04_001_P.shp	! GIS layer defining the elevation and bed resistance of the 1D channel, used to provide a better representation of velocity and flood hazard in mapped outputs
+
+End 1D Domain
+
+
+!_________________________________________________________________________________________________________
+! MODEL INPUTS
+Geometry Control File == ..\model\Model_1D2D.tgc	! Reference the TUFLOW Geometry Control File
+BC Control File == ..\model\Model_1D2D.tbc			! Reference the TUFLOW Boundary Conditions Control File
+ESTRY Control File == .\Model_1D2D_WithAutoECF.ecf	! Reference the ESTRY Control File
+BC Database == ..\bc_dbase\Model_1D2D.csv			! Reference the Boundary Conditions Database
+Read Materials File == ..\model\materials.csv		! Reference the Materials Definition File
+
+!__________________________________________________________________________________________________________
+! INITIAL WATER LEVELS
+Set IWL == 36.5	! Define an initial 2D water level of 36.5m
+
+!__________________________________________________________________________________________________________
+! SIMULATION TIME CONTROL COMMANDS
+Timestep == 1.5  ! Specifies a 2D computational timestep of 1.5 seconds
+Start Time == 0  ! Specifies a simulation start time of 0 hours
+End Time == 3    ! Specifies a simulation end time of 3 hours
+
+!__________________________________________________________________________________________________________
+! OUTPUT CONTROL AND FORMAT COMMANDS
+Log Folder == log								! Redirects log output files (eg. .tlf and _messages.mif files) to the folder 'log'
+Output Folder == ..\results\M04\2d				! Specifies the location of the 2D output files
+Write Check Files == ..\check\2d\				! Specifies the location of the 2D check files and prefixes them with the .tcf filename
+Map Output Data Types == h V q d MB1 MB2		! Output water levels, velocities, unit flows, depths and mass balance map output types
+Start Map Output == 0							! Starts writing the map output from 0 hours
+Map Output Interval == 300						! Outputs SMS map data every 300 seconds (5 minutes)
+Store Maximums and Minimums == ON MAXIMUMS ONLY	! Test for maximum (peak) values every timestep and add to SMS map output .dat files
+Screen/Log Display Interval == 40				! This command sets the frequency in which the output is displayed to the computer screen and the log (tlf) file
