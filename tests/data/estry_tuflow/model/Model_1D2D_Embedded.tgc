@@ -1,0 +1,3 @@
+!*********************************************************************************************************
+
+Read GIS Code == gis\2d_code_M04_null_creek_001_R.shp	! Deactivates the cells where the creek channel has been modelled in 1D

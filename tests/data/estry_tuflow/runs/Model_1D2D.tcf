@@ -25,19 +25,19 @@ Start 1D Domain
 
 	!_________________________________________________________________________________________________________________
 	! 1D NETWORK AND TABLE LINKS
-	Read GIS Network == gis\1d_nwk_M04_culverts_001_L.shp	! Reads the 1d_nwk GIS layer defining culverts within the model 
-	! Read GIS Network == gis\1d_nwk_M02_culverts_001_P.shp	! This GIS layer is commented out / removed from the model as the automated SX boundary links are no longer required
-	Read GIS Network == gis\1d_nwk_M04_channels_001_L.shp	! Reads the 1d_nwk GIS layer defining open channels within the model
-	Read GIS Table Links == xs\1d_xs_M04_creek_001_L.shp	! GIS layer that references cross-sectional data stored in separate csv files
+	Read GIS Network == ..\model\gis\1d_nwk_M04_culverts_001_L.shp		! Reads the 1d_nwk GIS layer defining culverts within the model 
+	! Read GIS Network == ..\model\gis\1d_nwk_M02_culverts_001_P.shp	! This GIS layer is commented out / removed from the model as the automated SX boundary links are no longer required
+	Read GIS Network == ..\model\gis\1d_nwk_M04_channels_001_L.shp		! Reads the 1d_nwk GIS layer defining open channels within the model
+	Read GIS Table Links == ..\model\xs\1d_xs_M04_creek_001_L.shp		! GIS layer that references cross-sectional data stored in separate csv files
 
 	!_________________________________________________________________________________________________________________
 	! 1D BOUNDARY CONDITIONS
-	Read GIS BC == gis\1d_bc_M04_001_P.shp	! Reads in the 1D boundary conditions
+	Read GIS BC == ..\model\gis\1d_bc_M04_001_P.shp	! Reads in the 1D boundary conditions
 
 	!_________________________________________________________________________________________________________________
 	! 1D WATER LEVEL LINES
-	Read GIS WLL == gis\1d_wll_M04_001_L.shp			! GIS layers used to display the 1D results in 2D map output result files
-	Read GIS WLL Points == gis\1d_wllp_M04_001_P.shp	! GIS layer defining the elevation and bed resistance of the 1D channel, used to provide a better representation of velocity and flood hazard in mapped outputs
+	Read GIS WLL == ..\model\gis\1d_wll_M04_001_L.shp			! GIS layers used to display the 1D results in 2D map output result files
+	Read GIS WLL Points == ..\model\gis\1d_wllp_M04_001_P.shp	! GIS layer defining the elevation and bed resistance of the 1D channel, used to provide a better representation of velocity and flood hazard in mapped outputs
 
 End 1D Domain
 
@@ -46,7 +46,6 @@ End 1D Domain
 ! MODEL INPUTS
 Geometry Control File == ..\model\Model_1D2D.tgc	! Reference the TUFLOW Geometry Control File
 BC Control File == ..\model\Model_1D2D.tbc			! Reference the TUFLOW Boundary Conditions Control File
-ESTRY Control File == .\Model_1D2D_WithAutoECF.ecf	! Reference the ESTRY Control File
 BC Database == ..\bc_dbase\Model_1D2D.csv			! Reference the Boundary Conditions Database
 Read Materials File == ..\model\materials.csv		! Reference the Materials Definition File
 
