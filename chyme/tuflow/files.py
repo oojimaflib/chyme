@@ -9,6 +9,9 @@
  Created:
     14 Jan 2022
 """
+import logging
+logger = logging.getLogger(__name__)
+
 import hashlib
 import os
 
@@ -102,6 +105,7 @@ class TuflowComponent():
         Overide this method in the concrete class and store the data as
         required.
         """
+        # logging.debug('Creating TuflowComponent at line: {}'.format(command_line))
         return False
     
 

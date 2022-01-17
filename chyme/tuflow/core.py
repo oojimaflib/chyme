@@ -9,6 +9,8 @@
     14 Jan 2022
     
 """
+import logging
+logger = logging.getLogger(__name__)
 
 import hashlib
 import os
@@ -36,10 +38,11 @@ class TuflowModel(core.Model):
         self.domains['2D'] = {'default': d2.Domain}
         
     def read(self):
+        logger.info('Loading TUFLOW model...')
         loader = TuflowLoader(self.input_path)
         loader.read()
         loader.create_components()
-        i=0
+        logger.info('TUFLOW model load complete')
         
 
 class TuflowLoader():
