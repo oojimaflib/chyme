@@ -11,12 +11,14 @@ a generalised storage concept for storing model data and contains functionality
 for reading and writing to different modelling formats.
 
 Chyme currently supports to the following model types::
-- Flood Modeller
-- ESTRY-TUFLOW
+
+	- Flood Modeller
+	- ESTRY-TUFLOW
 
 There are plans to also include::
-- HEC-RAS
-- Infoworks ICM
+
+	- HEC-RAS
+	- Infoworks ICM
 
 
 Contents:

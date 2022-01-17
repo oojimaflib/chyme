@@ -8,6 +8,7 @@ Subpackages
    :maxdepth: 4
 
    chyme.flood_modeller
+   chyme.tuflow
 
 Submodules
 ----------
@@ -24,6 +25,14 @@ chyme.d1 module
 ---------------
 
 .. automodule:: chyme.d1
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+chyme.d2 module
+---------------
+
+.. automodule:: chyme.d2
    :members:
    :undoc-members:
    :show-inheritance:
