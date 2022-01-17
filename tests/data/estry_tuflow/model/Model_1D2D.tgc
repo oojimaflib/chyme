@@ -12,7 +12,8 @@ Grid Size (X,Y) == 850, 1000	! 2D grid extent dimensions in metres
 ! MODEL GRID COMMANDS
 Set Code == 0											! Set all cells to inactive (ie. Code 0)
 Read GIS Code == gis\2d_code_M04_001_R.shp				! Set cell codes according to attributes specified within the GIS layer
-Read GIS Code == gis\2d_code_M04_null_creek_001_R.shp	! Deactivates the cells where the creek channel has been modelled in 1D
+Geometry Control File == .\Model_1D2D_Embedded.tgc			! Make a call to another .tgc file
+!Read GIS Code == gis\2d_code_M04_null_creek_001_R.shp	! Deactivates the cells where the creek channel has been modelled in 1D
 
 !__________________________________________________________________________________________________________
 ! DEFINE BASE TOPOGRAPHY
