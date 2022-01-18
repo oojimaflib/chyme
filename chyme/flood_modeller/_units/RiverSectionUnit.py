@@ -67,52 +67,143 @@ class RiverSectionUnitCrossSection(XZCrossSection):
         else:
             super().__init__(xz_series, thalweg=thalweg)
 
-    def active_section(self):
-        active_xh = Series(list(filter(lambda pt: pt[0] >= self.active_from and pt[0] <= self.active_to, self.xh_series)))
-        active_n = Series(list(filter(lambda pt: pt[0] >= self.active_from and pt[0] <= self.active_to, self.n_series)))
-        active_rpl = Series(list(filter(lambda pt: pt[0] >= self.active_from and pt[0] <= self.active_to, self.rpl_series)))
-        active_loc = Series(list(filter(lambda pt: pt[0] >= self.active_from and pt[0] <= self.active_to, self.loc_series)))
-        
-        panel_boundaries = [self.active_from]
-        for opb in filter(lambda x: x > self.active_from and x < self.active_to, self.panel_boundaries):
+    def sub_section(self, from_x, to_x):
+        within_range = lambda pt: pt[0] >= from_x and pt[0] <= to_x
+
+        sub_xh = Series(list(filter(within_range, self.xh_series)))
+        sub_n = Series(list(filter(within_range, self.n_series)))
+        sub_rpl = Series(list(filter(within_range, self.rpl_series)))
+        sub_loc = Series(list(filter(within_range, self.loc_series)))
+
+        panel_boundaries = [from_x]
+        for opb in filter(lambda x: x > from_x and x < to_x,
+                          self.panel_boundaries):
             panel_boundaries.append(opb)
         panel_boundaries.append(self.active_to)
-        
-        left_bank_x = self.active_from
-        if self.left_bank_x > self.active_from and self.left_bank_x < self.active_to:
+
+        left_bank_x = from_x
+        if self.left_bank_x > from_x and self.left_bank_x < to_x:
             left_bank_x = self.left_bank_x
-        right_bank_x = self.active_to
-        if self.right_bank_x > self.active_from and self.right_bank_x < self.active_to:
+        right_bank_x = to_x
+        if self.right_bank_x > from_x and self.right_bank_x < to_x:
             right_bank_x = self.right_bank_x
-            
+        
         min_x = 0.0
-        min_z = max([pt[1] for pt in active_xh]) + 10.0
-        for pt in active_xh:
+        min_z = max([pt[1] for pt in sub_xh]) + 10.0
+        for pt in sub_xh:
             if pt[1] < min_z:
                 min_x = pt[0]
                 min_z = pt[1]
-        if self.bed_x > self.active_from and self.bed_x < self.active_to:
+        if self.bed_x > from_x and self.bed_x < to_x:
             bed_x = self.bed_x
         else:
             bed_x = min_x
         
-        active_sec = RiverSectionUnitCrossSection(xz_series = active_xh,
-                                                  thalweg = min_z + self.thalweg)
-        active_sec.n_series = active_n
-        active_sec.rpl_series = active_rpl
-        active_sec.loc_series = active_loc
-        active_sec.panel_boundaries = panel_boundaries
-        active_sec.left_bank_x = left_bank_x
-        active_sec.right_bank_x = right_bank_x
-        active_sec.bed_x = bed_x
-        active_sec.active_from = active_xh[0][0]
-        active_sec.active_to = active_xh[-1][0]
+        active_from = from_x
+        if self.active_from > from_x and self.active_from < to_x:
+            active_from = self.active_from
+        active_to = to_x
+        if self.active_to > from_x and self.active_to < to_x:
+            active_to = self.active_to
+        
+        subsec = RiverSectionUnitCrossSection(xz_series = sub_xh,
+                                              thalweg = min_z + self.thalweg)
+        subsec.n_series = sub_n
+        subsec.rpl_series = sub_rpl
+        subsec.loc_series = sub_loc
+        subsec.panel_boundaries = panel_boundaries
+        subsec.left_bank_x = left_bank_x
+        subsec.right_bank_x = right_bank_x
+        subsec.bed_x = bed_x
+        subsec.active_from = active_from
+        subsec.active_to = active_to
 
-        return active_sec
+        return subsec
+            
+    def active_section(self):
+        return self.sub_section(self.active_from, self.active_to)
                 
     def num_panels(self):
         return len(self.panel_boundaries) - 1
 
+    def panel(self, index):
+        return self.sub_section(self.panel_boundaries[index],
+                                self.panel_boundaries[index + 1])
+
+    def mean_n_between(self, x0, x1):
+        nwtot = 0.0
+        wtot = 0.0
+        for pt0, pt1 in self.n_series.pairwise():
+            if pt0[0] >= x0 and pt0[0] < x1:
+                if pt1[0] >= x0 and pt1[0] < x1:
+                    # This manning n segment is entirely contained
+                    # within the range
+                    wtot += pt1[0] - pt0[0]
+                    nwtot += (pt1[0] - pt0[0]) * pt0[1]
+                else:
+                    # This manning n segment starts within the range
+                    # and ends outside it
+                    wtot += x1 - pt0[0]
+                    nwtot += (x1 - pt0[0]) * pt0[1]
+                    # This must be the last segment
+                    break
+            else:
+                if pt1[0] >= x0 and pt1[0] < x1:
+                    # This manning n segment starts outside the range
+                    # and ends inside it
+                    wtot += pt1[0] - x0
+                    nwtot += (pt1[0] - x0) * pt0[1]
+                else:
+                    # This n segment is entirely outside the range
+                    pass
+        return nwtot / wtot
+    
+    def mean_n(self, depth = None):
+        nptot = 0.0
+        ptot = 0.0
+        if depth is None:
+            for pt0, pt1 in self.xh_series.pairwise():
+                dx = pt1[0] - pt0[0]
+                dy = pt1[1] - pt0[1]
+                p = math.sqrt(dx*dx + dy*dy)
+                n = self.mean_n_between(pt0[0], pt1[0])
+                nptot += n*p
+                ptot += p
+            return np/p
+        else:
+            for pt0, pt1 in self.xh_series.pairwise():
+                dx = 0.0
+                dy = 0.0
+                n = 0.0
+                if p0[1] <= depth and p1[1] <= depth:
+                    # If both points are below the water level, then the
+                    # full length of this segment is added
+                    dx = p1[0] - p0[0]
+                    dy = p1[1] - p0[1]
+                    n = self.mean_n_between(p0[0], p1[0])
+                elif p0[1] <= depth:
+                    # If only the first point is below, use linear
+                    # interpolation to get the width below the waterline
+                    dy = depth - p0[1]
+                    ratio = dy / (p1[1] - p0[1])
+                    dx = ratio * (p1[0] - p0[0])
+                    n = self.mean_n_between(p0[0], p0[0] + dx)
+                elif p1[1] <= depth:
+                    # And similarly if only the second point is below
+                    dy = depth - p1[1]
+                    ratio = dy / (p0[1] - p1[1])
+                    dx = ratio * (p1[0] - p0[0])
+                    n = self.mean_n_between(p1[0] - dx, p1[0])
+                # If neither point was below we do nothing.
+                if n > 0.0:
+                    p = math.sqrt(dx*dx + dy*dy)
+                    ptot += p
+                    nptot += n*p
+        return nptot / ptot
+
+    
+    
+    
 class RiverSectionUnit(ReachFormingUnit):
     def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, **kwargs)

@@ -166,7 +166,7 @@ class Series(MutableSequence):
             old_value = value
 
         return self[-1]
-                
+
     def __len__(self):
         return len(self.points)
 
@@ -188,19 +188,19 @@ class Series(MutableSequence):
         if index > 0:
             before = self.points[index-1]
             for i in range(0, self.dimensions):
-                if not allow_reverse[i] and values[i] < before[i]:
+                if not self.allow_reverse[i] and values[i] < before[i]:
                     raise SeriesError("Data in column {} must not reverse.".format(i),
                                       before, values)
-                if not allow_repeats[i] and values[i] == before[i]:
+                if not self.allow_repeats[i] and values[i] == before[i]:
                     raise SeriesError("Data in column {} must not repeat.".format(i),
                                       before, values)
         if index < len(self) - 1:
             after = self.points[index+1]
             for i in range(0, self.dimensions):
-                if not allow_reverse[i] and after[i] < values[i]:
+                if not self.allow_reverse[i] and after[i] < values[i]:
                     raise SeriesError("Data in column {} must not reverse.".format(i),
                                       values, after)
-                if not allow_repeats[i] and after[i] == values[i]:
+                if not self.allow_repeats[i] and after[i] == values[i]:
                     raise SeriesError("Data in column {} must not repeat.".format(i),
                                       values, after)
                 
