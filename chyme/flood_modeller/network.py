@@ -14,9 +14,13 @@
 
 """
 
+import logging
+logger = logging.getLogger(__name__)
+
 from . import files
 from .. import network
 from . import units
+from chyme.utils.message import Message
 
 class FloodModellerNode(network.Node):
     """1D node class representing a node in a Flood Modeller network.
@@ -71,14 +75,33 @@ class FloodModellerNetwork(network.Network):
         """Constructor.
         """
         super().__init__()
+
+        messages = []
         
         # Read and validate the data file
+        dat_file_messages = []
+        logger.info("Reading Flood Modeller network from %s", dat_filename)
         self.dat_file = files.DataFile(dat_filename)
-        self.dat_file.read()
-        self.dat_file.validate()
+        
+        read_msg = self.dat_file.read()
+        if read_msg is not None:
+            messages.append(read_msg)
+            
+        validation_msg = self.dat_file.validate()
+        if validation_msg is not None:
+            messages.append(validation_msg)
+            
+        if len(messages) > 0:
+            self.message = Message("Messages encountered while creating flood modeller network",
+                                   children = messages,
+                                   logger_name = __name__)
+        else:
+            self.message = Message("Flood modeller network created with no messages!",
+                                   Message.SUCCESS)
+
         if self.dat_file:
             self.units = self.dat_file.create_units()
-            
+
         # Loop through the units in the dat file to build the network
     #     history = []
     #     chainage = 0.0

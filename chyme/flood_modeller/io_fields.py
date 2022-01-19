@@ -78,16 +78,33 @@ class Keyword(DataField):
         super().__init__()
         self.keyword = keyword
 
-    def read(self, data):
+    def read(self, data, line_no = None):
         """Read the keyword from the file data.
 
         Args:
             data: the bytearray object containing the line from the file
 
         Returns:
-            A KeywordData object holding the keyword that was read.
+            A tuple containing:
+                a KeywordData object holding the keyword that was read.
+                a Message object with any errors or warnings (or None)
         """
-        return KeywordData(self, data[0:len(self.keyword)].decode('latin_1'))
+        trim_length = len(self.keyword)
+        message = None
+        if len(data) > len(self.keyword):
+            message = DataFileMessage("Data following keyword is not understood",
+                                      Message.WARNING,
+                                      logger_name = __name__,
+                                      line_no = line_no)
+        elif len(self.keyword) < len(data):
+            message = DataFileMessage("Not enough data on line for keyword: ",
+                                      Message.WARNING,
+                                      logger_name = __name__,
+                                      line_no = line_no)
+            trim_length = len(data)
+            
+        return (KeywordData(self, data[0:trim_length].decode('latin_1')),
+                message)
 
     def write(self, value, out_data):
         """Write the keyword to a bytearray.
@@ -120,21 +137,29 @@ class FreeStringDataField(DataField):
         super().__init__(attribute_name, *args, **kwargs)
         self.index = index
 
-    def read(self, data):
+    def read(self, data, line_no = None):
         """Read the string from the file data.
 
         Args:
             data: the bytearray object containing the line from the file
 
         Returns:
-            A FreeStringData object holding the data that was read.
+            A tuple containing:
+                a FreeStringData object holding the data that was read.
+                a Message object with any errors or warnings (or None)
         """
+        message = None
         if self.index < len(data):
             value_bytes = data[self.index:]
         else:
             value_bytes = b''
+            message = DataFileMessage("No data on line",
+                                      Message.INFO,
+                                      logger_name = __name__,
+                                      line_no = line_no,
+                                      char_index = self.index)
 
-        return FreeStringData(self, value_bytes.decode('latin_1'))
+        return FreeStringData(self, value_bytes.decode('latin_1')), message
 
     def write(self, value, out_data):
         """Write the string to a bytearray.
@@ -177,7 +202,7 @@ class FixedDataField(DataField):
         self.blank_value = blank_value
         self.blank_permitted = blank_permitted
 
-    def read_str(self, data):
+    def read_str(self, data, line_no = None):
         """Read the value from the file data.
 
         Args:
@@ -187,14 +212,25 @@ class FixedDataField(DataField):
             the value read from the file, converted to a str object. It is 
             not guaranteed that len(self.read_str(...)) == self.width
         """
+        message = None
         if self.index + self.width < len(data):
             value_bytes = data[self.index:self.index + self.width]
         elif self.index < len(data):
             value_bytes = data[self.index:]
+            message = DataFileMessage("Not enough data on line",
+                                      Message.INFO,
+                                      logger_name = __name__,
+                                      line_no = line_no,
+                                      char_index = self.index)
         else:
             value_bytes = b''
+            message = DataFileMessage("Not enough data on line",
+                                      Message.INFO,
+                                      logger_name = __name__,
+                                      line_no = line_no,
+                                      char_index = self.index)
             
-        return value_bytes.decode('latin_1')
+        return value_bytes.decode('latin_1'), message
 
     def write_bytes(self, value_bytes, out_data):
         """Writes the value to a bytearray.
@@ -250,7 +286,7 @@ class IntegerDataField(FixedDataField):
         super().__init__(attribute_name, index, width, **kwargs)
         self.valid_range = valid_range
 
-    def read(self, data):
+    def read(self, data, line_no = None):
         """Read the value from the file data.
 
         Args:
@@ -259,8 +295,8 @@ class IntegerDataField(FixedDataField):
         Returns:
             An IntegerData object holding the data that was read.
         """
-        value_str = super().read_str(data)
-        return IntegerData(self, value_str)
+        value_str, message = super().read_str(data, line_no=line_no)
+        return IntegerData(self, value_str), message
 
     def write(self, value, data):
         """Write the value to a bytearray.
@@ -307,7 +343,7 @@ class FloatDataField(FixedDataField):
         self.precision = precision
         self.valid_range = valid_range
 
-    def read(self, data):
+    def read(self, data, line_no = None):
         """Read the value from the file data.
 
         Args:
@@ -316,8 +352,8 @@ class FloatDataField(FixedDataField):
         Returns:
             A FloatData object holding the data that was read.
         """
-        value_str = super().read_str(data)
-        return FloatData(self, value_str)
+        value_str, message = super().read_str(data, line_no=line_no)
+        return FloatData(self, value_str), message
 
     def write(self, value, data):
         """Write the value to a bytearray.
@@ -363,7 +399,7 @@ class StringDataField(FixedDataField):
         self.valid_values = valid_values
         self.preserve_whitespace = preserve_whitespace
 
-    def read(self, data):
+    def read(self, data, line_no = None):
         """Read the value from the file data.
 
         Args:
@@ -372,8 +408,8 @@ class StringDataField(FixedDataField):
         Returns:
             A StringData object holding the data that was read.
         """
-        value_str = super().read_str(data)
-        return StringData(self, value_str)
+        value_str, message = super().read_str(data, line_no=line_no)
+        return StringData(self, value_str), message
 
     def write(self, value, data):
         """Write the value to a bytearray.
@@ -419,14 +455,27 @@ class DataRow:
         Returns:
             A RowData object holding the data that was read.
         """
-        line = next(line_iter)
+        line_no, line = next(line_iter)
         data = []
+        messages = []
         for field in self.fields:
-            data.append(field.read(line))
+            datum, message = field.read(line, line_no=line_no)
+            data.append(datum)
+            if message is not None:
+                messages.append(message)
         for datum in filter(lambda x: x.field.apply_required, data):
-            if datum.validate():
+            message = datum.validate()
+            if message is not None:
+                messages.append(message)
+            if datum.is_valid:
                 datum.apply(unit.values)
-        return RowData(data)
+        if len(messages) > 0:
+            msg = DataFileMessage("Messages encountered",
+                                  children = messages,
+                                  line_no = line_no)
+        else:
+            msg = None
+        return RowData(data), msg
 
 class Rule(DataRow):
     """Class representing a sequence of rows/lines containing a logical rule.
@@ -440,14 +489,23 @@ class Rule(DataRow):
         """Read the rule from the file data.
         """
         data = []
+        messages = []
         while True:
-            line = next(line_iter)
+            line_no, line = next(line_iter)
             if line.removeprefix('END') != line:
                 break
             i = len(data)
             field = FreeStringDataField("rule_text", attribute_index=i)
-            data.append(field.read(line))
-        return RuleData(data)
+            datum, message = field.read(line, line_no=line_no)
+            data.append(datum)
+            if message is not None:
+                messages.append(message)
+        if len(messages) > 0:
+            msg = DataFileMessage("Messages raised while reading rule",
+                                  children = messages)
+        else:
+            msg = None
+        return RuleData(data), msg
             
     
 class NodeLabelRow(DataRow):
@@ -466,17 +524,26 @@ class NodeLabelRow(DataRow):
     def read(self, unit, line_iter):
         """Read the line from the file data.
         """
-        line = next(line_iter)
+        line_no, line = next(line_iter)
         data = []
+        messages = []
         while self.count == 0 or len(data) < self.count:
             i = len(data)
             field = StringDataField("node_labels", i*12, (i+1)*12, justify_left=True, attribute_index=i)
-            datum = field.read(line)
+            datum, message = field.read(line, line_no=line_no)
             if self.count == 0 and datum.value is None:
                 break
             else:
                 data.append(datum)
-        return RowData(data)
+            if message is not None:
+                messages.append(message)
+        if len(messages) > 0:
+            msg = DataFileMessage("Messages raised while reading node labels",
+                                  children = messages,
+                                  line_no = line_no)
+        else:
+            msg = None
+        return RowData(data), msg
         
 class DataTable:
     """Class representing a table of data in the data file spread over 
@@ -524,9 +591,19 @@ class DataTable:
         """        
         rows_to_read = unit.values[self.row_count_attribute_name]
         table = []
+        messages = []
         for row_no in range(0, rows_to_read):
             #print("Reading row {}".format(row_no))
-            table.append(self.row_spec.read(unit, line_iter))
-        return TableData(self, table)
+            datum, message = self.row_spec.read(unit, line_iter)
+            table.append(datum)
+            if message is not None:
+                messages.append(message)
+        if len(messages) > 0:
+            msg = DataFileMessage("Messages raised while reading table",
+                                  children = messages)
+        else:
+            msg = None
+                                  
+        return TableData(self, table), msg
     
         

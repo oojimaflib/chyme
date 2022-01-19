@@ -16,6 +16,7 @@
 
 from . import units
 from . import io
+from .io_data import DataFileMessage, Message
 
 class DataFile:
     valid_units = [
@@ -25,46 +26,85 @@ class DataFile:
     ]
     
     def __init__(self, filename):
+        self.messages = []
         with open(filename, 'rb', buffering=0) as infile:
             self.data = bytearray(infile.readall())
 
+    @property
+    def message(self):
+        if len(self.messages) > 0:
+            return Message("Flood Modeller DAT file:",
+                           children = self.messages)
+        else:
+            return Message("Flood Modeller DAT file read successfully.",
+                           Message.INFO)
+            
     def read(self):
+        messages = []
+        
         line_iter = self.lines()
-        next_line = next(line_iter)
-        self.general = io.GeneralUnitIO(next_line)
-        self.general.read(line_iter)
+        line_no, next_line = next(line_iter)
+        self.general = io.GeneralUnitIO(next_line, line_no = line_no)
+        message = self.general.read(line_iter)
+        if message is not None:
+            message.message_text += "General Unit"
+            messages.append(message)
 
         self.units_io = []
-        next_line = next(line_iter)
+        line_no, next_line = next(line_iter)
         while next_line.removeprefix(b'INITIAL CONDITIONS') == next_line:
             line_valid = False
             for UnitIO in self.valid_units:
                 if next_line.removeprefix(UnitIO.unit_name) != next_line:
                     line_valid = True
                     if issubclass(UnitIO, io.FloodModellerUnitGroupIO):
-                        second_line = next(line_iter)
+                        line2_no, second_line = next(line_iter)
                         #print("Second line: {}".format(second_line))
                         for SubUnitIO in UnitIO.subunits:
                             if second_line.removeprefix(SubUnitIO.subunit_name) != second_line:
-                                self.units_io.append(SubUnitIO(next_line, second_line))
-                                self.units_io[-1].read(line_iter)
+                                self.units_io.append(SubUnitIO(next_line, second_line, line_no=line_no))
+                                message = self.units_io[-1].read(line_iter)
+                                if message is not None:
+                                    messages.append(message)
                                 #print(self.units[-1])
                                 break
                     else:
-                        self.units_io.append(UnitIO(next_line))
-                        self.units_io[-1].read(line_iter)
+                        self.units_io.append(UnitIO(next_line, line_no=line_no))
+                        message = self.units_io[-1].read(line_iter)
+                        if message is not None:
+                            messages.append(message)
                         #print(self.units[-1])
                     break
 
             if not line_valid:
-                print("Skipping line: {}".format(next_line))
-            next_line = next(line_iter)
+                msg = DataFileMessage("Skipping line: {}".format(next_line),
+                                      Message.WARNING,
+                                      logger_name = __name__,
+                                      line_no = line_no)
+                messages.append(msg)
+            line_no, next_line = next(line_iter)
+            
+        if len(messages) > 0:
+            return DataFileMessage("Messages encountered while reading data file.",
+                                   children = messages,
+                                   logger_name = __name__)
+        else:
+            return None
 
     def validate(self):
+        messages = []
         for uio in self.units_io:
-            uio.validate()
+            message = uio.validate()
+            if message is not None:
+                messages.append(message)
         self.is_valid = all(self.units_io)
-        return self.is_valid
+
+        if len(messages) > 0:
+            return DataFileMessage("Validation issues in data file.",
+                                   children = messages,
+                                   logger_name = __name__)
+        else:
+            return None
             
     def create_units(self):
         units = []
@@ -87,6 +127,7 @@ class DataFile:
         
     def lines(self):
         index = 0
+        line_no = 0
         line_end = self.data.find(b'\n')
         if line_end == -1:
             raise RuntimeError("No newlines in flood modeller file.")
@@ -102,8 +143,9 @@ class DataFile:
             self.wle_offset = 2
             
         while index < len(self.data):
-            yield self.data[index:line_end - self.wle_offset]
+            yield line_no, self.data[index:line_end - self.wle_offset]
             index = line_end + 1
+            line_no += 1
             line_end = self.data.find(b'\n', index)
 
     def get_domain(self):

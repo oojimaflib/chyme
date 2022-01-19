@@ -19,9 +19,12 @@ from . import units
 from .io_fields import *
 import copy
 
-    
 class FloodModellerUnitIO:
-    def __init__(self, first_line, second_line = None):
+    def __init__(self,
+                 first_line,
+                 second_line = None,
+                 *args,
+                 line_no = None):
         # TODO: split first line by removing self.unit_name from the
         # start and storing the second half and the first-line comment
         self.line1_comment = first_line.removeprefix(self.unit_name)
@@ -32,6 +35,7 @@ class FloodModellerUnitIO:
         self.node_labels = []
         self.data = []
         self.values = dict()
+        self.line_no = line_no
 
     def __bool__(self):
         return self.is_valid
@@ -55,18 +59,38 @@ class FloodModellerUnitIO:
     #             index += 1
         
     def read(self, line_iter):
+        messages = []
         self.is_valid = True
         self.data = []
         for component in self.components:
             if component.condition(self):
-                component_data = component.read(self, line_iter)
+                component_data, message = component.read(self, line_iter)
                 self.data.append(component_data)
+                if message is not None:
+                    messages.append(message)
+        if len(messages) > 0:
+            return DataFileMessage("Messages encountered while reading {}".format(self.unit_name.decode('latin_1')),
+                                   children=messages,
+                                   logger_name = __name__,
+                                   line_no = self.line_no)
+        else:
+            return None
 
     def validate(self):
+        messages = []
         for datum in self.data:
-            datum.validate()
+            message = datum.validate()
+            if message is not None:
+                messages.append(message)
         self.is_valid = all(self.data)
-        return self.is_valid
+
+        if len(messages) > 0:
+            return DataFileMessage("Validation issues in {} unit".format(self.unit_name.decode('latin_1')),
+                                   children = messages,
+                                   logger_name = __name__,
+                                   line_no = self.line_no)
+        else:
+            return None
 
     def apply(self):
         for datum in self.data:
@@ -106,8 +130,8 @@ class GeneralUnitIO(FloodModellerUnitIO):
         DataRow([Keyword(b'END GENERAL')])
     ]
 
-    def __init__(self, first_line):
-        super().__init__(first_line)
+    def __init__(self, first_line, *args, **kwargs):
+        super().__init__(first_line, *args, **kwargs)
 
 class FloodModellerUnitGroupIO:
     pass
@@ -186,8 +210,8 @@ class InterpolateUnitIO(FloodModellerUnitIO):
     ]
     reach_unit = True
 
-    def __init__(self, first_line):
-        super().__init__(first_line)
+    def __init__(self, first_line, *args, **kwargs):
+        super().__init__(first_line, *args, **kwargs)
 
 class RiverSectionUnitIO(FloodModellerUnitIO):
     UnitClass = units.RiverSectionUnit
@@ -216,8 +240,8 @@ class RiverSectionUnitIO(FloodModellerUnitIO):
     ]
     reach_unit = True
     
-    def __init__(self, first_line, second_line):
-        super().__init__(first_line, second_line)
+    def __init__(self, first_line, second_line, *args, **kwargs):
+        super().__init__(first_line, second_line, *args, **kwargs)
 
 class RiverMuskinghamVPMCUnitIO(FloodModellerUnitIO):
     UnitClass = units.MuskinghamVPMCUnit
@@ -259,8 +283,8 @@ class RiverMuskinghamVPMCUnitIO(FloodModellerUnitIO):
     ]
     reach_unit = True
 
-    def __init__(self, first_line, second_line):
-        super().__init__(first_line, second_line)
+    def __init__(self, first_line, second_line, *args, **kwargs):
+        super().__init__(first_line, second_line, *args, **kwargs)
 
 class RiverCESSectionUnitIO(FloodModellerUnitIO):
     UnitClass = units.CESSectionUnit
@@ -269,8 +293,8 @@ class RiverCESSectionUnitIO(FloodModellerUnitIO):
     components = []
     reach_unit = True
     
-    def __init__(self, first_line, second_line):
-        super().__init__(first_line, second_line)
+    def __init__(self, first_line, second_line, *args, **kwargs):
+        super().__init__(first_line, second_line, *args, **kwargs)
         
 class RiverUnitGroupIO(FloodModellerUnitGroupIO):
     unit_name = b'RIVER'
@@ -279,4 +303,3 @@ class RiverUnitGroupIO(FloodModellerUnitGroupIO):
         RiverCESSectionUnitIO,
         RiverMuskinghamVPMCUnitIO,
     ]
-    

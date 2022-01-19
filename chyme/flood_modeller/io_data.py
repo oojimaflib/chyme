@@ -14,6 +14,25 @@
 
 """
  
+from chyme.utils.message import Message
+
+class DataFileMessage(Message):
+    def __init__(self,
+                 message_text,
+                 severity = None,
+                 *args,
+                 line_no = None,
+                 char_index = None,
+                 attribute_name = None,
+                 **kwargs):
+        if line_no is not None:
+            message_text += " at line {}".format(line_no)
+        if char_index is not None:
+            message_text += " at column {}".format(char_index)
+        if attribute_name is not None:
+            message_text += " while processing attribute {}".format(attribute_name)
+        super().__init__(message_text, severity, *args, **kwargs)
+
 class FieldData:
     """Base class representing a value or keyword read from a DAT file.
 
@@ -72,9 +91,14 @@ class KeywordData(FieldData):
         self._value = value_str.rstrip()
 
     def validate(self):
-        # TODO: maybe just check that the line begins with the keyword
         self.is_valid = (field.keyword == self._value)
-        return self.is_valid
+        if not self.is_valid:
+            return DataFileMessage("Keyword mis-match: {} != {}".format(field.keyword, self._value),
+                                   Message.ERROR,
+                                   logger_name = __name__,
+                                   attribute_name = field.attribute_name)
+        else:
+            return None
 
     def write(self, out_data):
         self.field.write(self._value, out_data)
@@ -91,7 +115,7 @@ class FreeStringData(FieldData):
 
     def validate(self):
         self.is_valid = True
-        return self.is_valid
+        return None
         
     def write(self, out_data):
         self.field.write(self._value, out_data)
@@ -117,9 +141,13 @@ class IntegerData(FieldData):
         if self._value is None:
             if self.field.blank_permitted and self.field.blank_value is None:
                 self.is_valid = True
+                return None
             else:
                 self.is_valid = False
-            return self.is_valid
+                return DataFileMessage("No value supplied, but blank values are not permitted.",
+                                       Message.ERROR,
+                                       logger_name = __name__,
+                                       attribute_name = field.attribute_name)
 
         self.is_valid = True
         if self.field.valid_range[0] is not None and \
@@ -128,7 +156,14 @@ class IntegerData(FieldData):
         elif self.field.valid_range[1] is not None and \
              self._value > self.field.valid_range[1]:
             self.is_valid = False
-        return self.is_valid
+
+        if not self.is_valid:
+            return DataFileMessage("Integer value is out of valid range",
+                                   Message.ERROR,
+                                   logger_name = __name__,
+                                   attribute_name = field.attribute_name)
+        else:
+            return None
 
     def write(self, out_data):
         if self.value_str is None:
@@ -157,9 +192,13 @@ class FloatData(FieldData):
         if self._value is None:
             if self.field.blank_permitted and self.field.blank_value is None:
                 self.is_valid = True
+                return None
             else:
                 self.is_valid = False
-            return self.is_valid
+                return DataFileMessage("No value supplied, but blank values are not permitted.",
+                                       Message.ERROR,
+                                       logger_name = __name__,
+                                       attribute_name = field.attribute_name)
 
         self.is_valid = True
         if self.field.valid_range[0] is not None and \
@@ -168,7 +207,14 @@ class FloatData(FieldData):
         elif self.field.valid_range[1] is not None and \
              self._value > self.field.valid_range[1]:
             self.is_valid = False
-        return self.is_valid
+
+        if not self.is_valid:
+            return DataFileMessage("Floating point value is out of valid range",
+                                   Message.ERROR,
+                                   logger_name = __name__,
+                                   attribute_name = field.attribute_name)
+        else:
+            return None
 
     def write(self, out_data):
         if self.value_str is None:
@@ -199,14 +245,26 @@ class StringData(FieldData):
         if self._value is None:
             if self.field.blank_permitted and self.field.blank_value is None:
                 self.is_valid = True
+                return None
             else:
                 self.is_valid = False
-            return self.is_valid
+                return DataFileMessage("No value supplied, but blank values are not permitted.",
+                                       Message.ERROR,
+                                       logger_name = __name__,
+                                       attribute_name = field.attribute_name)
 
         self.is_valid = True
         if self.field.valid_values is not None:
             self.is_valid = (self._value in self.field.valid_values)
-        return self.is_valid
+
+        if not self.is_valid:
+            return DataFileMessage("String value is not valid",
+                                   Message.ERROR,
+                                   logger_name = __name__,
+                                   attribute_name = field.attribute_name)
+        else:
+            return None
+
 
     def write(self, out_data):
         if self.value_str is None:
@@ -223,10 +281,19 @@ class RowData:
         return self.is_valid
         
     def validate(self):
+        messages = []
         for datum in self.row_data:
-            datum.validate()
+            message = datum.validate()
+            if message is not None:
+                messages.append(message)
         self.is_valid = all(self.row_data)
-        return self.is_valid
+
+        if len(messages) > 0:
+            return DataFileMessage("Validation issues in table row",
+                                   children = messages,
+                                   logger_name = __name__)
+        else:
+            return None
 
     def apply(self, obj):
         for datum in self.row_data:
@@ -247,10 +314,19 @@ class RuleData:
         return self.is_valid
         
     def validate(self):
+        messages = []
         for datum in self.rule_data:
-            datum.validate()
+            message = datum.validate()
+            if message is not None:
+                messages.append(message)
         self.is_valid = all(self.rule_data)
-        return self.is_valid
+
+        if len(messages) > 0:
+            return DataFileMessage("Validation issues in rule",
+                                   children = messages,
+                                   logger_name = __name__)
+        else:
+            return None
 
     def apply(self, obj):
         for datum in self.rule_data:
@@ -273,10 +349,20 @@ class TableData:
         return self.is_valid
         
     def validate(self):
+        messages = []
         for row in self.rows:
-            row.validate()
+            message = row.validate()
+            if message is not None:
+                messages.append(message)
         self.is_valid = all(self.rows)
-        return self.is_valid
+
+        if len(messages) > 0:
+            return DataFileMessage("Validation issues in table",
+                                   children = messages,
+                                   logger_name = __name__,
+                                   attribute_name = self.data_table.attribute_name)
+        else:
+            return None
 
     def apply(self, obj):
         table_list = []
