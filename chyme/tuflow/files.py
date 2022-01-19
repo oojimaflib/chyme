@@ -1,4 +1,3 @@
-
 """
  Summary:
     Contains classes for reading TUFLOW files.
@@ -9,6 +8,7 @@
  Created:
     14 Jan 2022
 """
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -25,12 +25,11 @@ class TuflowRawFile():
         'geometry control file': 'tgc',
         'bc control file': 'tbc',
         'estry control file': 'ecf',
+        'estry control file auto': 'ecf',
         'bc database': 'bcdbase',
-        'read materials file': 'mat',
-        'read file': 'tcf', # TODO: This probably won't work!!
     }
     
-    def __init__(self, filepath, parent_path='', parent_type='', command_line='', command=''):
+    def __init__(self, filepath, parent_path='', parent_type='', command_line='', command='', line_num=-1):
         """Setup the raw contents of the file.
         
         There's a few things to do here::
@@ -49,6 +48,7 @@ class TuflowRawFile():
             command_line='' (str): the original line in the file when read.
             command='' (str): the control file calling command.
         """
+        self._valid_path = False
         self.filepath = filepath
         self.parent_path = parent_path
         self.command_line = command_line
@@ -62,13 +62,13 @@ class TuflowRawFile():
         else:
             self.parent_type = parent_type
 
-        if self.extension == 'trd':
+        if not command:
+            self.tuflow_type = self.extension
+        # Tuflow Read File (trd) is always the calling file type (I think?)
+        elif command == 'read file':
             self.tuflow_type = self.parent_type
         else:
-            if not command:
-                self.tuflow_type = self.extension
-            else:
-                self.tuflow_type = TuflowRawFile.CONTROL_COMMANDS[command]
+            self.tuflow_type = TuflowRawFile.CONTROL_COMMANDS[command]
         
         # If the path was read from a file, create the hash based on the path and
         # the original command line that it was read from. Otherwise just use the 
@@ -81,8 +81,25 @@ class TuflowRawFile():
         # Will contain all of the loaded file data once it's been read in
         self.data = []
         
+    @property
+    def valid_path(self):
+        """Test whether the filepath exists/is accessible or not.
+        
+        Return:
+            bool - True if path exists, False if not
+        """
+        if os.path.exists(self.filepath):
+            self._valid_path = True
+        else:
+            self._valid_path = False
+        return self._valid_path
+        
     def metadata(self):
-        """Fetch all the metadata (setup variables) as a dict."""
+        """Fetch all the metadata (setup variables) as a dict.
+        
+        Return:
+            dict - containing the metadata for the class.
+        """
         all_members = self.__dict__.keys()
         return {item: self.__dict__[item] for item in all_members if not item.startswith("_") and not item == 'data'}
     
