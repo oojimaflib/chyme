@@ -14,7 +14,8 @@ SHP Projection == ..\model\gis\Projection.prj 		! This command sets the GIS proj
 
 !_________________________________________________________________________________________________________
 ! MODEL INPUTS
-Geometry Control File == ..\model\Model_1D2D.tgc	! Reference the TUFLOW Geometry Control File
+Geometry Control File == ..\model\Model_1D2D_1.tgc	! Reference the TUFLOW Geometry Control File
+Geometry Control File == ..\model\Model_1D2D_2.tgc	! Reference the TUFLOW Geometry Control File
 BC Control File == ..\model\Model_1D2D.tbc			! Reference the TUFLOW Boundary Conditions Control File
 ESTRY Control File AUTO								! Reference the ESTRY Control File
 BC Database == ..\bc_dbase\Model_1D2D.csv			! Reference the Boundary Conditions Database

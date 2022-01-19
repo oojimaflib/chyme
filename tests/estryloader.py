@@ -30,6 +30,7 @@ def load_estry_only():
 
     fpath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D.tcf')
     # fpath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D_WithECF.tcf')
+    fpath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D_WithAutoECF.tcf')
     model = tuflow_core.TuflowModel(fpath)
     model.read()
     
