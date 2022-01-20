@@ -20,9 +20,18 @@ from .io_data import DataFileMessage, Message
 
 class DataFile:
     valid_units = [
+        io.AbstractionUnitIO,
+        io.BridgeUnitGroupIO,
+        io.ConduitUnitGroupIO,
         io.InterpolateUnitIO,
+        io.ReplicateUnitIO,
         io.RiverUnitGroupIO,
         io.JunctionUnitGroupIO,
+        io.SpillUnitIO,
+        io.CulvertStructureUnitGroupIO,
+        io.LateralUnitIO,
+        io.QTBoundaryUnitIO,
+        io.HTBoundaryUnitIO,
     ]
     
     def __init__(self, filename):
