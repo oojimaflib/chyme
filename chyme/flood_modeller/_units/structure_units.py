@@ -22,6 +22,12 @@ class StructureUnit(FloodModellerUnit):
     def is_structure(self):
         return True
 
+    def us_node_label(self):
+        return self.node_labels[0]
+
+    def ds_node_label(self):
+        return self.node_labels[1]
+
 class ArchBridgeUnit(StructureUnit):
     def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, auto_implement=True, **kwargs)

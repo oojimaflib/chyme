@@ -444,7 +444,7 @@ class DataRow:
         self.apply_required = any([x.apply_required for x in self.fields])
         self.condition = condition
 
-    def read(self, unit, line_iter):
+    def read(self, unit, line_iter, in_line_no = None, in_line = None):
         """Read the line from the file data.
 
         Args:
@@ -455,7 +455,12 @@ class DataRow:
         Returns:
             A RowData object holding the data that was read.
         """
-        line_no, line = next(line_iter)
+        if in_line_no is None or in_line is None:
+            line_no, line = next(line_iter)
+        else:
+            line_no = in_line_no
+            line = in_line
+            
         data = []
         messages = []
         for field in self.fields:
@@ -485,13 +490,18 @@ class Rule(DataRow):
         """
         super().__init__([])
 
-    def read(self, unit, line_iter):
+    def read(self, unit, line_iter, in_line_no = None, in_line = None):
         """Read the rule from the file data.
         """
         data = []
         messages = []
         while True:
-            line_no, line = next(line_iter)
+            if len(data) > 0 or in_line_no is None or in_line is None:
+                line_no, line = next(line_iter)
+            else:
+                line_no = in_line_no
+                line = in_line
+                    
             if line.removeprefix('END') != line:
                 break
             i = len(data)
@@ -521,10 +531,15 @@ class NodeLabelRow(DataRow):
         self.count = count
         super().__init__([])
 
-    def read(self, unit, line_iter):
+    def read(self, unit, line_iter, in_line_no = None, in_line = None):
         """Read the line from the file data.
         """
-        line_no, line = next(line_iter)
+        if in_line_no is None or in_line is None:
+            line_no, line = next(line_iter)
+        else:
+            line_no = in_line_no
+            line = in_line
+            
         data = []
         messages = []
         while self.count == 0 or len(data) < self.count:
@@ -559,7 +574,7 @@ class LateralTableDataRow(DataRow):
         super().__init__(fields, condition=condition)
         self.width_updated = False
 
-    def read(self, unit, line_iter):
+    def read(self, unit, line_iter, in_line_no = None, in_line = None):
         """Read the line from the file data.
         """
         if not self.width_updated:
@@ -567,7 +582,7 @@ class LateralTableDataRow(DataRow):
             self.fields[1].index = unit.node_label_length
             self.fields[2].index = unit.node_label_length + 10
             self.width_updated = True
-        return super().read(unit, line_iter)
+        return super().read(unit, line_iter, in_line_no, in_line)
         
 class DataTable:
     """Class representing a table of data in the data file spread over 
@@ -601,7 +616,7 @@ class DataTable:
         self.apply_required = False # CHECK: do we ever need to apply a table during the parse?
         self.condition = condition
 
-    def read(self, unit, line_iter):
+    def read(self, unit, line_iter, in_line_no = None, in_line = None):
         """Read the table from the file data.
 
         Args:
@@ -612,13 +627,22 @@ class DataTable:
 
         Returns:
             A TableData object holding the data that was read.
-        """        
+        """
+        if in_line_no is None or in_line is None:
+            line_no = None
+            line = None
+        else:
+            line_no = in_line_no
+            line = in_line
+        
         rows_to_read = unit.values[self.row_count_attribute_name]
         table = []
         messages = []
         for row_no in range(0, rows_to_read):
             #print("Reading row {}".format(row_no))
-            datum, message = self.row_spec.read(unit, line_iter)
+            datum, message = self.row_spec.read(unit, line_iter, line_no, line)
+            line_no = None
+            line = None
             table.append(datum)
             if message is not None:
                 messages.append(message)

@@ -147,7 +147,7 @@ class IntegerData(FieldData):
                 return DataFileMessage("No value supplied, but blank values are not permitted.",
                                        Message.ERROR,
                                        logger_name = __name__,
-                                       attribute_name = field.attribute_name)
+                                       attribute_name = self.field.attribute_name)
 
         self.is_valid = True
         if self.field.valid_range[0] is not None and \

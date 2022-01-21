@@ -22,27 +22,39 @@ from .. import network
 from . import units
 from chyme.utils.message import Message
 
+from itertools import accumulate
+
 class FloodModellerNode(network.Node):
     """1D node class representing a node in a Flood Modeller network.
     """
-    def __init__(self, unit):
-        super().__init__(name=unit.name())
-        self.units = []
-        self.append_unit(unit)
+    def __init__(self, unit, *args, **kwargs):
+        super().__init__(name=unit.name(), *args, **kwargs)
+        self.unit = unit
+    #     self.units = []
+    #     self.append_unit(unit)
 
-    def append_unit(self, unit):
-        self.units.append(unit)
-        for node_label in unit.node_labels:
-            if node_label is not None:
-                self.add_alias(node_label)
+    # def append_unit(self, unit):
+    #     self.units.append(unit)
+    #     for node_label in unit.node_labels:
+    #         if node_label is not None:
+    #             self.add_alias(node_label)
         
-    def merge_with(self, other):
-        super().merge_with(other)
-        for unit in other.units:
-            if unit not in self.units:
-                self.units.append(unit)
-        
+    # def merge_with(self, other):
+    #     super().merge_with(other)
+    #     for unit in other.units:
+    #         if unit not in self.units:
+    #             self.units.append(unit)
+
+class FloodModellerBoundaryNode(FloodModellerNode):
+    """A location in a Flood Modeller network where an external boundary
+    is applied.
+    """
+    def __init__(self, unit, *args, **kwargs):
+        super().__init__(unit, *args, **kwargs)
+        self.node_label = unit.node_labels[0]
+    
 class FloodModellerBranch(network.Branch):
+
     """1D reach class representing a branch in a Flood Modeller network.
     """
     def __init__(self, *args, **kwargs):
@@ -51,20 +63,42 @@ class FloodModellerBranch(network.Branch):
 class FloodModellerStructure(network.Structure):
     """1D reach class representing a structure in a Flood Modeller network.
     """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-class FloodModellerReach(network.Reach):
-    """1D reach class representing a reach in a Flood Modeller network.
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, unit, *args, **kwargs):
+        self.us_name = unit.us_node_label()
+        self.ds_name = unit.ds_node_label()
+        name = "{} → {}".format(self.us_name, self.ds_name)
+        super().__init__(name, *args, **kwargs)
 
 class FloodModellerReachSection(network.ReachSection):
     """1D reach section class in a Flood Modeller network.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, x, unit, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.x = x
+        self.unit = unit
+
+class FloodModellerReach(network.Reach):
+    """1D reach class representing a reach in a Flood Modeller network.
+    """
+    def __init__(self,
+                 reach_units,
+                 *args,
+                 partial = False,
+                 **kwargs):
+        self.reach_units = reach_units
+        self.partial = partial
+        unit_names = [x.name() for x in self.reach_units]
+        self.us_name = unit_names[0]
+        self.ds_name = unit_names[-1]
+        reach_name = "{} → {}".format(self.us_name, self.ds_name)
+        super().__init__(reach_name, *args,
+                         aliases = unit_names, **kwargs)
+        self.locations = list(accumulate(reach_units,
+                                         lambda x, unit: x + unit.chainage,
+                                         initial = 0.0))
+        self.length = self.locations[-1]
+        self.sections = [FloodModellerReachSection(x, unit)
+                         for x,unit in zip(self.locations, self.reach_units)]
 
 class FloodModellerNetwork(network.Network):
     """1D network class representing a Flood Modeller model.
@@ -76,7 +110,7 @@ class FloodModellerNetwork(network.Network):
         """
         super().__init__()
 
-        messages = []
+        init_messages = []
         
         # Read and validate the data file
         dat_file_messages = []
@@ -85,23 +119,76 @@ class FloodModellerNetwork(network.Network):
         
         read_msg = self.dat_file.read()
         if read_msg is not None:
-            messages.append(read_msg)
+            init_messages.append(read_msg)
             
         validation_msg = self.dat_file.validate()
         if validation_msg is not None:
-            messages.append(validation_msg)
+            init_messages.append(validation_msg)
             
-        if len(messages) > 0:
-            self.message = Message("Messages encountered while creating flood modeller network",
-                                   children = messages,
-                                   logger_name = __name__)
+        if len(init_messages) > 0:
+            self.messages = [
+                Message("Messages encountered while creating flood modeller network",
+                        children = init_messages,
+                        logger_name = __name__)
+            ]
         else:
-            self.message = Message("Flood modeller network created with no messages!",
-                                   Message.SUCCESS)
+            self.messages = [
+                Message("Flood modeller network created with no messages!",
+                        Message.SUCCESS)
+            ]
 
         if self.dat_file:
             self.units = self.dat_file.create_units()
 
+
+        # Build the network
+        reaches = list(self.reaches())
+        structures = list(self.structures())
+        boundaries = list(self.boundaries())
+
+        branch_structures = []
+        for bdy in boundaries:
+            # Find a reach or structure downstream of this boundary
+            for r in reaches:
+                if bdy.name == r.us_name:
+                    # We are connected to a reach
+                    branch_structures = [r]
+                    break
+            if len(branch_structures) == 0:
+                for s in structures:
+                    if bdy.name == s.us_name:
+                        branch_structures = [s]
+                        break
+            
+            
+
+    def reaches(self):
+        reach_units = []
+        for unit in self.units:
+            if unit.is_reach_component():
+                reach_units.append(unit)
+                if unit.chainage == 0.0:
+                    # This unit marks the end of a reach
+                    yield FloodModellerReach(reach_units)
+                    reach_units = []
+            elif len(reach_units) > 0:
+                # We have arrived at a non-reach unit with reach units
+                # in hand
+                msg = Message("Sequence of reach units does not end with zero chainage.", message.ERROR)
+                self.messages.append(msg)
+                yield FloodModellerReach(reach_units, partial = True)
+                reach_units = []
+
+    def structures(self):
+        for unit in self.units:
+            if unit.is_structure():
+                yield FloodModellerStructure(unit)
+
+    def boundaries(self):
+        for unit in self.units:
+            if unit.is_boundary():
+                yield FloodModellerBoundaryNode(unit)
+    
         # Loop through the units in the dat file to build the network
     #     history = []
     #     chainage = 0.0

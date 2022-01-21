@@ -60,13 +60,23 @@ class FloodModellerUnitIO:
     #             yield getattr(self, 'node_label_{}'.format(index))
     #             index += 1
         
-    def read(self, line_iter):
+    def read(self, line_iter, in_line_no = None, in_line = None):
         messages = []
         self.is_valid = True
         self.data = []
+
+        if in_line_no is None or in_line is None:
+            line_no = None
+            line = None
+        else:
+            line_no = in_line_no
+            line = in_line
+        
         for component in self.components:
             if component.condition(self):
-                component_data, message = component.read(self, line_iter)
+                component_data, message = component.read(self, line_iter, line_no, line)
+                line_no = None
+                line = None
                 self.data.append(component_data)
                 if message is not None:
                     messages.append(message)
@@ -109,7 +119,27 @@ class FloodModellerUnitIO:
 class GeneralUnitIO(FloodModellerUnitIO):
     UnitClass = units.GeneralUnit
     unit_name = b''
-    components = [
+
+    rev0_components = [
+        DataRow([
+            IntegerDataField("num_units", 0, 10),
+            FloatDataField("lower_Fr_transition", 10, 10),
+            FloatDataField("upper_Fr_transition", 20, 10),
+            FloatDataField("minimum_depth", 30, 10),
+            FloatDataField("direct_method_tolerance", 40, 10),
+            IntegerDataField("node_label_length", 50, 10, apply_required=True,
+                             blank_value = 8),
+            StringDataField("units_type", 60, 10, justify_left=True)]),
+        DataRow([
+            FloatDataField("temperature", 0, 10),
+            FloatDataField("head_tolerance", 10, 10),
+            FloatDataField("flow_tolerance", 20, 10),
+            FloatDataField("mathematical_damping", 30, 10),
+            FloatDataField("pivotal_choice_parameter", 40, 10),
+            FloatDataField("under_relaxation", 50, 10),
+            FloatDataField("matrix_dummy_coefficient", 60, 10)]),
+    ]
+    rev1_components = [
         DataRow([Keyword(b'#REVISION#1')]),
         DataRow([
             IntegerDataField("num_units", 0, 10),
@@ -135,6 +165,24 @@ class GeneralUnitIO(FloodModellerUnitIO):
 
     def __init__(self, first_line, *args, **kwargs):
         super().__init__(first_line, *args, **kwargs)
+
+    def read(self, line_iter, in_line_no = None, in_line = None):
+        if in_line_no is None or in_line is None:
+            line_no, line = next(line_iter)
+        else:
+            line_no = in_line_no
+            line = in_line
+        
+        if line.removeprefix(b'#') == line:
+            # The line does not start with a '#' and this is therefore
+            # an original-type GENERAL unit
+            self.components = self.rev0_components
+            return super().read(line_iter, line_no, line)
+        else:
+            # The line does start with a '#'.
+            self.components = self.rev1_components
+            return super().read(line_iter, line_no, line)
+            
 
 class FloodModellerUnitGroupIO:
     pass
@@ -481,10 +529,13 @@ class RiverSectionUnitIO(FloodModellerUnitIO):
                       FloatDataField("z", 10, 10),
                       FloatDataField("n", 20, 10),
                       StringDataField("panel", 30, 1),
-                      FloatDataField("rpl", 31, 9),
+                      FloatDataField("rpl", 31, 9,
+                                     blank_value = 1.0),
                       StringDataField("bank_marker", 40, 10),
-                      FloatDataField("easting", 50, 10),
-                      FloatDataField("northing", 60, 10),
+                      FloatDataField("easting", 50, 10,
+                                     blank_value = 0.0),
+                      FloatDataField("northing", 60, 10,
+                                     blank_value = 0.0),
                       StringDataField("deactivation_marker", 70, 10)]))
     ]
     reach_unit = True
