@@ -52,7 +52,8 @@ class TuflowRawFile():
         self.filepath = filepath
         self.parent_path = parent_path
         self.command_line = command_line
-        
+        self.line_num = line_num
+
         self.root_dir, filename = os.path.split(self.filepath)
         self.filename, self.extension = os.path.splitext(filename)
         self.extension = self.extension[1:]
@@ -74,7 +75,9 @@ class TuflowRawFile():
         # the original command line that it was read from. Otherwise just use the 
         # path (root file).
         if command_line:
-            self.hash = hashlib.md5('{}{}'.format(parent_path, command_line).encode('utf-8')).hexdigest()
+            self.hash = hashlib.md5('{}{}{}'.format(
+                parent_path, command_line, line_num).encode('utf-8')
+            ).hexdigest()
         else:
             self.hash = hashlib.md5('{}'.format(filepath).encode('utf-8')).hexdigest()
 
@@ -113,17 +116,9 @@ class TuflowComponent():
     
     def __init__(self):
         pass
-    
-    def read(self, command_line, parent_path, component_type):
-        """Read the contents of a file line command into the component.
         
-        Default behaviour is to do nothing and return False. This will just 
-        mean nothing happens and the contents of the file aren't loaded.
-        Overide this method in the concrete class and store the data as
-        required.
-        """
-        # logging.debug('Creating TuflowComponent at line: {}'.format(command_line))
-        return False
+    def add_command(self, command):
+        raise NotImplementedError
     
 
 class TuflowFileComponent(TuflowComponent):
@@ -133,79 +128,9 @@ class TuflowFileComponent(TuflowComponent):
     type structures. They all contain similar setups and need to be parsed in 
     basically the same way.
     """
-    # TODO: It's probably okay to keep this here for now, but it might be a
-    #       good idea to move it into a class or something at some point?
-    valid_commands = [
-        ['geometry control file', io.TuflowControlCommandIO],
-        ['bc control file', io.TuflowControlCommandIO],
-        ['estry control file', io.TuflowControlCommandIO],
-        ['read materials file', io.TuflowMaterialsCommandIO],
-        ['read gis', io.TuflowGisCommandIO],
-        ['start'], 
-        ['end'],
-    ]
-    valid_subcommands = {
-        'start': [
-            ['start 1d domain', io.TuflowDomainCommandIO],
-            ['start 2d domain', io.TuflowDomainCommandIO],
-        ],
-        'end': [
-            ['end 1d domain', io.TuflowDomainCommandIO],
-            ['end 2d domain', io.TuflowDomainCommandIO],
-        ],
-        'read gis': [
-            ['read gis table links', io.TuflowTableLinksCommandIO],
-        ]
-    }
-    subcommand_keys = valid_subcommands.keys()
     
     def __init__(self):
         self.commands = []
-    
-    def read(self, command_line, parent_path, component_type):
-        """Read the contents of the control file.
-        
-        Args:
-            root_dir (str): the directory that the control file was read from.
-        
-        Return:
-            
-        """
-        super().read(command_line, parent_path, component_type)
-        line = command_line.strip()
-        line = line.replace('  ', '')
-        command = self.command_type(line)
-        if command:
-            command = command(line, parent_path, component_type)
-            self.add_command(command)
-            if isinstance(command, io.TuflowControlCommandIO):
-                return command
-        return False
-                
-    def command_type(self, line_in):
-        """Check whether the command line is recognised and handle it.
-        
-        If the command isn't recognised it gets ignored. If it is, the appropriate io class
-        will be returned for handling it.
-        
-        Args:
-            line_in (str): Control file line to read.
-        
-        Return:
-            io.TuflowCommandIO or False if not recognised.
-        """
-        line_in = line_in.lower()
-        for v in TuflowFileComponent.valid_commands:
-            if line_in.startswith(v[0]):
-                if v[0] in TuflowFileComponent.subcommand_keys:
-                    for s in TuflowFileComponent.valid_subcommands[v[0]]:
-                        if line_in.startswith(s[0]):
-                            return s[1]
-                    else:
-                        if len(v) > 1: return v[1]
-                else:
-                    return v[1] 
-        return False
     
     def add_command(self, command):
         self.commands.append(command)
@@ -221,23 +146,20 @@ class TuflowControlComponent(TuflowFileComponent):
         self.domain_2d_count = 0
         self.active_2d_domain = 'domain_0'
 
-    def read(self, command_line, parent_path, component_type):
-        return super().read(command_line, parent_path, component_type)
-    
-    def add_command(self, command):
-        if command.command == 'start 1d domain':
+    def add_command(self, command_field):
+        if command_field.instruction.value == 'start 1d domain':
             self.in_1d = True
-        elif command.command == 'start 2d domain':
-            self._create_2d_domain(command.command)
+        elif command_field.instruction.value == 'start 2d domain':
+            self._create_2d_domain(command_field.instruction.value)
             
-        if self.in_1d or command.component_type == 'ecf':
-            self.commands_1d.append(command)
+        if self.in_1d or command_field.component_type == 'ecf':
+            self.commands_1d.append(command_field)
         else:
-            self.commands_2d[self.active_2d_domain].append(command)
+            self.commands_2d[self.active_2d_domain].append(command_field)
 
-        if command.command == 'end 1d domain':
+        if command_field.instruction.value == 'end 1d domain':
             self.in_1d = False
-        elif command.command == 'end 2d domain':
+        elif command_field.instruction.value == 'end 2d domain':
             self.active_2d_domain = 'domain_0'
             
     def _create_2d_domain(self, command_line):
@@ -255,16 +177,141 @@ class TuflowGeometryComponent(TuflowFileComponent):
     
     def __init__(self):
         super().__init__()
-
-    def read(self, command_line, parent_path, component_type):
-        return super().read(command_line, parent_path, component_type)
     
     
 class TuflowBoundaryComponent(TuflowFileComponent):
     
     def __init__(self):
         super().__init__()
+    
 
-    def read(self, command_line, parent_path, component_type):
-        return super().read(command_line, parent_path, component_type)
+class TuflowCommandTypes():
+    
+    def __init__(self):
+        self.tier_1 = [
+            ['geometry control file', io.TuflowControlCommandIO],
+            ['bc control file', io.TuflowControlCommandIO],
+            ['estry control file', io.TuflowControlCommandIO],
+            ['estry control file auto', io.TuflowControlCommandIO],
+            ['read materials file', io.TuflowMaterialsCommandIO],
+            ['read gis', io.TuflowGisCommandIO],
+            ['start', None], 
+            ['end', None],
+        ]
+        self.tier_2 = {
+            'start': [
+                ['start 1d domain', io.TuflowDomainCommandIO],
+                ['start 2d domain', io.TuflowDomainCommandIO],
+            ],
+            'end': [
+                ['end 1d domain', io.TuflowDomainCommandIO],
+                ['end 2d domain', io.TuflowDomainCommandIO],
+            ],
+            'read gis': [
+                ['read gis table links', io.TuflowTableLinksCommandIO],
+            ]
+        }
+        self.tier_2_keys = self.tier_2.keys()
+        
+    def fetch_command_type(self, command):
+        """Get the TuflowCommandIO associated with the given command.
+        
+        Args:
+            command (str): the command string used in the TUFLOW file.
+            
+        Return:
+            TuflowCommandIO subclassess associated with the given command.
+        """
+        return self._fetch_tier1_type(command)
+    
+    def _fetch_tier1_type(self, command):
+        output = False
+        for t in self.tier_1:
+            if command.startswith(t[0]):
+                if t[0] in self.tier_2_keys:
+                    t2 = self._fetch_tier2_type(command, t[0])
+                    if not t2:
+                        output = t[1]
+                else:
+                    if t[1] is not None:
+                        output = t[1]
+                    else:
+                        output = False
+        return output
+    
+    def _fetch_tier2_type(self, command, command_part):
+        output = False
+        for t in self.tier_2[command_part]:
+            if command.startswith(t[0]):
+                if t[1] is not None:
+                    output = t[1]
+                else:
+                    output = False
+        return output
+
+
+class TuflowCommandFactory(TuflowCommandTypes):
+    """Factory class for creating TuflowCommandIO objects.
+    
+    """
+    
+    def __init__(self):
+        super().__init__()
+        
+    def create_command(self, line, parent_path, component_type, line_num):
+        parent_path = parent_path
+        component_type = component_type
+        # self.root_dir = os.path.dirname(parent_path)
+        # self.command = ''
+        # self.variable = ''
+        line_hash = hashlib.md5('{}{}{}'.format(
+            parent_path, line, line_num).encode('utf-8')
+        ).hexdigest()
+        
+        line = self._remove_comment(line)
+        command, variable = self._split_line(line)
+        command_type = self.fetch_command_type(command)
+        if command_type:
+            command_type = command_type(
+                command, variable, line, parent_path, component_type, line_hash
+            )
+            command_type.build_instruction()
+            command_type.build_variables()
+            return command_type
+        else:
+            return False
+
+    def _split_line(self, line):
+        """Split line in command and variable when '==' is found.
+        
+        Set the command and variable values.
+        
+        Args:
+            line (str): the line read in from the control file.
+        """
+        command = None
+        variable = None
+        if '==' in line:
+            split_line = line.split('==')
+            command = split_line[0].strip().replace('  ', ' ').lower()
+            variable = split_line[1].strip()
+        else:
+            command = line.strip().replace('  ', ' ').lower()
+        return command, variable
+        
+    def _remove_comment(self, line):
+        """Remove any comments from the file command.
+        
+        Just chuck any comments away.
+        All '#' were replaced with '!' while reading in the byte array so we
+        only have to worry about '!'.
+        
+        Args:
+            line (str): the line read in from the control file.
+            
+        Return:
+            str - line with comments removed.
+        """
+        line = line.split('!', 1)[0]
+        return line
     

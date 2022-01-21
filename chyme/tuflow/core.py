@@ -106,17 +106,20 @@ class TuflowLoader():
         """
         lookup_order = [('tcf', 'control'), ('ecf', 'control'), ('tgc', 'geometry'), ('tbc', 'boundary')]
         lookup = dict(lookup_order)
+        command_factory = files.TuflowCommandFactory()
 
-        def create_component_type(raw_data_type):
+        def create_components(raw_data_type):
             for raw in self.raw_files[raw_data_type]:
                 metadata = raw.metadata()
                 component_type = lookup[metadata['tuflow_type']]
                 for d in raw.data:
-                    self.components[component_type].read(d, metadata['filepath'], metadata['tuflow_type'])
+                    command = command_factory.create_command(d, metadata['filepath'], metadata['tuflow_type'], metadata['line_num'])
+                    if command:
+                        self.components[component_type].add_command(command)
                     
-        create_component_type(TuflowLoader.RAW_FILE_ORDER['tcf'])
-        create_component_type(TuflowLoader.RAW_FILE_ORDER['tgc'])
-        create_component_type(TuflowLoader.RAW_FILE_ORDER['tbc'])
+        create_components(TuflowLoader.RAW_FILE_ORDER['tcf'])
+        create_components(TuflowLoader.RAW_FILE_ORDER['tgc'])
+        create_components(TuflowLoader.RAW_FILE_ORDER['tbc'])
         
     def _fetch_control_files(self, control_files):
         """Load all of the control files in the list recursively.
