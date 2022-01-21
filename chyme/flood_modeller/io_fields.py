@@ -529,7 +529,10 @@ class NodeLabelRow(DataRow):
         messages = []
         while self.count == 0 or len(data) < self.count:
             i = len(data)
-            field = StringDataField("node_labels", i*12, (i+1)*12, justify_left=True, attribute_index=i)
+            field = StringDataField("node_labels",
+                                    i*unit.node_label_length,
+                                    (i+1)*unit.node_label_length,
+                                    justify_left=True, attribute_index=i)
             datum, message = field.read(line, line_no=line_no)
             if self.count == 0 and datum.value is None:
                 break
@@ -544,6 +547,27 @@ class NodeLabelRow(DataRow):
         else:
             msg = None
         return RowData(data), msg
+        
+class LateralTableDataRow(DataRow):
+    """Class representing a row/line from a Lateral inflow table
+
+    """
+    def __init__(self, fields, *, condition=lambda x: True):
+        """Constructor.
+
+        """
+        super().__init__(fields, condition=condition)
+        self.width_updated = False
+
+    def read(self, unit, line_iter):
+        """Read the line from the file data.
+        """
+        if not self.width_updated:
+            self.fields[0].width = unit.node_label_length
+            self.fields[1].index = unit.node_label_length
+            self.fields[2].index = unit.node_label_length + 10
+            self.width_updated = True
+        return super().read(unit, line_iter)
         
 class DataTable:
     """Class representing a table of data in the data file spread over 

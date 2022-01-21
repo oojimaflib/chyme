@@ -24,7 +24,8 @@ class FloodModellerUnitIO:
                  first_line,
                  second_line = None,
                  *args,
-                 line_no = None):
+                 line_no = None,
+                 node_label_length = 12):
         # TODO: split first line by removing self.unit_name from the
         # start and storing the second half and the first-line comment
         self.line1_comment = first_line.removeprefix(self.unit_name)
@@ -36,6 +37,7 @@ class FloodModellerUnitIO:
         self.data = []
         self.values = dict()
         self.line_no = line_no
+        self.node_label_length = node_label_length
 
     def __bool__(self):
         return self.is_valid
@@ -115,7 +117,8 @@ class GeneralUnitIO(FloodModellerUnitIO):
             FloatDataField("upper_Fr_transition", 20, 10),
             FloatDataField("minimum_depth", 30, 10),
             FloatDataField("direct_method_tolerance", 40, 10),
-            IntegerDataField("node_label_length", 50, 10),
+            IntegerDataField("node_label_length", 50, 10, apply_required=True,
+                             blank_value = 8),
             StringDataField("units_type", 60, 10, justify_left=True)]),
         DataRow([
             FloatDataField("temperature", 0, 10),
@@ -641,10 +644,10 @@ class LateralUnitIO(FloodModellerUnitIO):
         DataRow([IntegerDataField("lat_row_count", 0, 10,
                                   apply_required=True)]),
         DataTable("lat", "lat_row_count",
-                  DataRow([
+                  LateralTableDataRow([
                       StringDataField("node_label", 0, 12),
-                      FloatDataField("weight", 12, 22),
-                      StringDataField("override", 22, 32,
+                      FloatDataField("weight", 12, 10),
+                      StringDataField("override", 22, 10,
                                       valid_values = ['OVERRIDE'])])),
     ]
     reach_unit = False

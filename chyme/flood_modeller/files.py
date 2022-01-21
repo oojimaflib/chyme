@@ -14,6 +14,9 @@
 
 """
 
+import logging
+logger = logging.getLogger(__name__)
+
 from . import units
 from . import io
 from .io_data import DataFileMessage, Message
@@ -59,6 +62,9 @@ class DataFile:
             message.message_text += "General Unit"
             messages.append(message)
 
+        nll = self.general.values['node_label_length']
+        logger.info("DAT file has node label length of %d", nll)
+            
         self.units_io = []
         line_no, next_line = next(line_iter)
         while next_line.removeprefix(b'INITIAL CONDITIONS') == next_line:
@@ -71,15 +77,22 @@ class DataFile:
                         #print("Second line: {}".format(second_line))
                         for SubUnitIO in UnitIO.subunits:
                             if second_line.removeprefix(SubUnitIO.subunit_name) != second_line:
-                                self.units_io.append(SubUnitIO(next_line, second_line, line_no=line_no))
+                                suio = SubUnitIO(next_line, second_line,
+                                                 line_no=line_no,
+                                                 node_label_length=nll)
+                                self.units_io.append(suio)
                                 message = self.units_io[-1].read(line_iter)
                                 if message is not None:
                                     messages.append(message)
                                 #print(self.units[-1])
                                 break
                     else:
-                        self.units_io.append(UnitIO(next_line, line_no=line_no))
-                        message = self.units_io[-1].read(line_iter)
+                        uio = UnitIO(next_line,
+                                     line_no=line_no,
+                                     node_label_length=nll)
+                        self.units_io.append(uio)
+                        message = uio.read(line_iter)
+                        # message = self.units_io[-1].read(line_iter)
                         if message is not None:
                             messages.append(message)
                         #print(self.units[-1])
