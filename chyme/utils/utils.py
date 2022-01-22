@@ -15,6 +15,7 @@
     19 Jan 2022
 """
 import hashlib
+import re
 
 
 def generate_md5_hash(salt, encoding='utf-8'):
@@ -22,3 +23,19 @@ def generate_md5_hash(salt, encoding='utf-8'):
 
 def generate_md5_hashstring(salt, encoding='utf-8'):
     return hashlib.md5('{}'.format(salt).encode(encoding)).hexdigest()
+
+def remove_multiple_whitespace(in_str, keep_special_chars=False):
+    """Convert all multiple white space characters to single space.
+    
+    Args:
+        in_str (str): the string to check/replace multiple whitespace chars.
+        keep_special_chars=False (bool): If True it will maintain any special
+            formatting chars, like \t \n etc
+            
+    Return:
+        str - with multiple spaces replaced with single spaces.
+    """
+    if not keep_special_chars:
+        return ' '.join(in_str.split())
+    else:
+        re.sub(' {2,}', ' ', 'The     quick brown    fox')

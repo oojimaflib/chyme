@@ -17,6 +17,7 @@ import hashlib
 import os
 
 from chyme import core, d1, d2
+from chyme.utils import utils
 from . import files
 from . import network as tuflow_network
 from .estry import network as estry_network
@@ -43,8 +44,21 @@ class TuflowModel(core.Model):
         loader = TuflowLoader(self.input_path)
         loader.read()
         loader.create_components()
+        loader.resolve_variables()
+        loader.validate()
         logger.info('TUFLOW model load complete')
         
+        print('\nRead File Dump')
+        for k, comp in loader.components.items():
+            if k == 'control':
+                print('\n(Type: control 1d)')
+                [print(p) for p in comp.parts_1d]
+                print('\n(Type: control 2d)')
+                [print(p) for p in comp.parts_2d['domain_0']]
+            else:
+                print('\n(Type: {})'.format(k))
+                [print(p) for p in comp.parts]
+        i=0
 
 class TuflowLoader():
     """Main file loader class for TUFLOW models.
@@ -62,9 +76,10 @@ class TuflowLoader():
         'tcf': 0, 'ecf': 0, 'tgc': 1, 'tbc': 2
     }
     
-    def __init__(self, filepath):
+    def __init__(self, filepath, se_vals='s NON s1   BAS s2 5m s3 Block e1   Q0100 e2 12hr'):
         self.input_path = os.path.normpath(filepath)
         self.root_dir = os.path.dirname(filepath)
+        self.se_vals = files.SEStore.from_string(se_vals)
         self.raw_files = [[], [], []] # See RAW_FILE_ORDER
         self.components = {
             'control': files.TuflowControlComponent(),
@@ -72,7 +87,7 @@ class TuflowLoader():
             'boundary': files.TuflowBoundaryComponent(),
         }
         self.controlfile_read_errors = []
-
+        
     def read(self):
         """Read in all of the control file data for the TUFLOW  model.
         
@@ -106,20 +121,33 @@ class TuflowLoader():
         """
         lookup_order = [('tcf', 'control'), ('ecf', 'control'), ('tgc', 'geometry'), ('tbc', 'boundary')]
         lookup = dict(lookup_order)
-        command_factory = files.TuflowCommandFactory()
+        command_factory = files.TuflowPartFactory()
 
         def create_components(raw_data_type):
             for raw in self.raw_files[raw_data_type]:
                 metadata = raw.metadata()
                 component_type = lookup[metadata['tuflow_type']]
                 for d in raw.data:
-                    command = command_factory.create_command(d, metadata['filepath'], metadata['tuflow_type'], metadata['line_num'])
+                    command = command_factory.create_part(d, metadata['filepath'], metadata['tuflow_type'], metadata['line_num'])
                     if command:
-                        self.components[component_type].add_command(command)
+                        self.components[component_type].add_part(command)
                     
         create_components(TuflowLoader.RAW_FILE_ORDER['tcf'])
         create_components(TuflowLoader.RAW_FILE_ORDER['tgc'])
         create_components(TuflowLoader.RAW_FILE_ORDER['tbc'])
+
+    def resolve_variables(self):
+        # Now resolve some variables
+        variables = self.components['control'].get_custom_variables()
+        variables = {
+            'variables': variables, 'scenarios': self.se_vals.scenarios, 
+            'events': self.se_vals.events
+        }
+        for k, v in self.components.items():
+            v.resolve_custom_variables(variables)
+            
+    def validate(self):
+        pass
         
     def _fetch_control_files(self, control_files):
         """Load all of the control files in the list recursively.
@@ -204,7 +232,7 @@ class TuflowLoader():
             if '==' in line:
                 split_line = row.split('!', 1)[0].strip()
                 command, variable = split_line.split('==', 1)
-                command = command.strip().lower().replace('  ', ' ')
+                command = utils.remove_multiple_whitespace(command).lower()
                 variable = variable.strip()
                 if command in TuflowLoader.CONTROL_COMMAND_KEYS:
                     if os.path.isabs(variable):
@@ -218,7 +246,7 @@ class TuflowLoader():
                     )
                     control_files.append(raw_file)
             elif 'auto' in line.lower():
-                fixed_line = line.strip().lower().replace('  ', ' ')
+                fixed_line = utils.remove_multiple_whitespace(line).lower()
                 command = 'estry control file auto'
                 if fixed_line.startswith(command):
                     fpath = os.path.splitext(parent_path)[0]

@@ -8,19 +8,23 @@
  Created:
     14 Jan 2022
 """
+import logging
+logger = logging.getLogger(__name__)
+
 import hashlib
 import os
+import re
 from dbfread import DBF
 
 from . import core
 # from chyme.tuflow import components
 from chyme.tuflow import iofields
 
-field_factory = iofields.TuflowFieldFactory()
+# field_factory = iofields.TuflowFieldFactory()
 
 
 
-class TuflowCommandIO():
+class TuflowPartIO():
     """Abstract class containing default methods for handling TUFLOW commands.
     
     TODO: I think that perhaps the different components - like variable, command
@@ -29,27 +33,127 @@ class TuflowCommandIO():
           I haven't done it yet, while we see if this is a setup we want to stick
           with, but it's probably a good future idea?
     """
+    # VAR_PATTERN = re.compile('(<<~?\w+~?>>)|(~[seSE]\d{0,2}~)')
+    VAR_PATTERN = re.compile('(<<\w+>>)|(<?<?~[seSE]\d{0,2}~>?>?)')
+    """Capture all occurances of a string containing either::
+        <<SOME_VAR>>: case independent, optional underscores.
+        ~s1~: case independent, may be followed by up to 2 numbers.
+        ~e1~: case independent, may be followed by up to 2 numbers.
+        <<~s1~>>: case independent, may be followed by numbers (also works for ~e~).
+    """
     
-    def __init__(self, instruction, variable, line, parent_path, component_type, line_hash):
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
         self.original_line = line
         self.component_type = component_type
         self.parent_path = parent_path
         self.root_dir = os.path.dirname(parent_path)
-        self.instruction = instruction
-        self.variables = variable
         self.hash = line_hash
-        self.INSTRUCTION_TYPES = []
-        self.VARIABLE_TYPES = []
+        self.raw_command = command
+        self.raw_variable = variable
+
+        self.command = ''
+        self.files = []
+        self.variables = []
         
-    def build_instruction(self):
-        self.instruction = field_factory.build_instruction(self.instruction, self.INSTRUCTION_TYPES)
+    def __repr__(self):
+        vars = ' '.join(str(v) for v in self.variables) if self.variables else ''
+        fpaths = ' | '.join(str(f) for f in self.files) if self.files else ''
+        return '{0:<30} {1:<10} {2}{3}'.format(
+            str(self.command), '==', fpaths, vars #' '.join(str(v) for v in self.variables)
+            # 'dkf', '==', fpaths, vars #' '.join(str(v) for v in self.variables)
+        )
+        
+    def build_command(self):
+        self.command = iofields.CommandField(self.raw_command)
         
     def build_variables(self):
-        if self.variables is not None:
-            self.variables = field_factory.build_variables(self.variables, self.VARIABLE_TYPES)
+        self.variables.append(iofields.VariableField(self.raw_variable))
+        
+    def resolve_custom_variables(self, custom_variables):
+        """Replace variable names with their values where found.
+        
+        Resolving the placeholder variables to the value associated with them is done
+        in-place. The original (read in) value is still stored in the raw_variable value
+        of the object, but the value held by the VariableField or FileField has now
+        been replaced.
+        
+        The custom_variables dict must be in the format::
+            {
+                'variables': {'var_name': value}, ...
+                'scenarios': {'sN': value}, ...
+                'events': {'eN': value}, ...
+            }
+        
+        Args:
+            custom_variables (dict): dictionary containing all of the custom variables,
+                scenario and event values found in the files or handed to the loaded.
+        """
+        
+        # Replace pattern matches in variables
+        for v in self.variables:
+            m = re.search(TuflowPartIO.VAR_PATTERN, v.value)
+            if m:
+                items = None
+                format_str = ''
+                if m.group(1): # Matches <<>> style variables
+                    items = custom_variables['variables'].items()
+                    format_str = '<<{}>>'
+                
+                # TODO: Not sure if they have to have "<< >>" around them or can be
+                #       just "~ ~"? Currently replaces only for brackets.
+                #       The regex will find both.
+                elif m.group(2): # Matches ~s~ or ~e~ style variables
+                    format_str = '<<~{}~>>'
+                    if '~s' in v.value:
+                        items = custom_variables['scenarios'].items()
+                    elif '~e' in v.value:
+                        items = custom_variables['events'].items()
+
+                if items:
+                    for k, var in items:
+                        if k in v.value:
+                            v.value = v.value.replace(format_str.format(k), var)
+                            fstr = format_str.format(k)
+                            logger.info('Resolving variable {} --> {}'.format(fstr,var))
+                            break
+
+        # Replace pattern matches in filenames
+        for f in self.files:
+            m = re.search(TuflowPartIO.VAR_PATTERN, f.value)
+            if m:
+                items = None
+                format_str = ''
+                if m.group(1): # Matches <<>> style variables
+                    items = custom_variables['variables'].items()
+                    format_str = '<<{}>>'
+                elif m.group(2): # Matches ~s~ or ~e~ style variables
+                    print('group 2')
+                    format_str = '<<~{}~>>'
+                    if '~s' in f.value:
+                        items = custom_variables['scenarios'].items()
+                    elif '~e' in f.value:
+                        items = custom_variables['events'].items()
+
+                if items:
+                    for k, var in items:
+                        print(k, var)
+                        if k in f.value:
+                            f.value = f.value.replace(format_str.format(k), var)
+                            fstr = format_str.format(k)
+                            logger.info('Resolving variable {} --> {}'.format(fstr,var))
+                            break
+                
+    def _is_piped(self, variable):
+        if '|' in variable:
+            return True
+        return False
+
+    def _split_pipes(self, variable):
+        pipes = variable.strip().split('|')
+        return [p.strip() for p in pipes]
     
 
-class TuflowFileCommandIO(TuflowCommandIO):
+class TuflowFilePartIO(TuflowPartIO):
     """Superclass for command classes containing file variables.
     
     Contains generic methods for dealing with commands that reference a file.
@@ -63,52 +167,88 @@ class TuflowFileCommandIO(TuflowCommandIO):
           rather than trying to handle everything in the one class? Not sure though.
           It could get messy as one class, but a whole extra class seems overkill?
     """
+    EXTENSION_TYPES = {
+        'shp': ['shp', 'shx', 'dbf', 'prj'],
+        'mif': ['mif', 'mid', 'tab'],
+    }
 
-    def __init__(self, instruction, variable, line, parent_path, component_type, line_hash):
-        super().__init__(instruction, variable, line, parent_path, component_type, line_hash)
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
+        super().__init__(command, variable, line, parent_path, component_type, line_hash)
         self.files = []
         self.extensions_list = []
-        self.VARIABLE_TYPES = ['multifile']
+        
+    def build_variables(self):
+        fpaths = self._split_pipes(self.raw_variable)
+        for f in fpaths:
+            self.files.append(iofields.FileField(f, self.parent_path, self.root_dir))
+        
+        # Set the extension list based on the first file in the file list. It's guaranteed
+        # to exist, unlike the others. I don't think you can combine different file types,
+        # So it should be okay to do this?
+        ext = self.files[0].extension()
+        if ext in ['shp', 'mif']:
+            self.extensions_list = TuflowFilePartIO.EXTENSION_TYPES[ext]
         
 
-class TuflowControlCommandIO(TuflowFileCommandIO):
+class TuflowControlPartIO(TuflowFilePartIO):
     
-    def __init__(self, instruction, variable, line, parent_path, component_type, line_hash):
-        super().__init__(instruction, variable, line, parent_path, component_type, line_hash)
-        self.VARIABLE_TYPES = ['file']
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
+        super().__init__(command, variable, line, parent_path, component_type, line_hash)
 
         
-class TuflowGisCommandIO(TuflowFileCommandIO):
+class TuflowGisPartIO(TuflowFilePartIO):
     
-    def __init__(self, instruction, variable, line, parent_path, component_type, line_hash):
-        super().__init__(instruction, variable, line, parent_path, component_type, line_hash)
-        self.VARIABLE_TYPES = ['multifile']
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
+        super().__init__(command, variable, line, parent_path, component_type, line_hash)
         
         
-class TuflowDomainCommandIO(TuflowCommandIO):
+class TuflowDomainPartIO(TuflowPartIO):
     
-    def __init__(self, instruction, variable, line, parent_path, component_type, line_hash):
-        super().__init__(instruction, variable, line, parent_path, component_type, line_hash)
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
+        super().__init__(command, variable, line, parent_path, component_type, line_hash)
 
 
-class TuflowVariableCommandIO(TuflowCommandIO):
+class TuflowVariablePartIO(TuflowPartIO):
     
-    def __init__(self, instruction, variable, line, parent_path, component_type, line_hash):
-        super().__init__(instruction, variable, line, parent_path, component_type, line_hash)
-        self.VARIABLE_TYPES = ['multiple_variable']
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
+        super().__init__(command, variable, line, parent_path, component_type, line_hash)
+            
+    def build_variables(self):
+        if self._is_piped(self.raw_variable):
+            vars = self._split_pipes(self.raw_variable)
+            for v in vars:
+                self.variables.append(iofields.VariableField(v))
+        else:
+            super().build_variables()
+
+
+class TuflowCustomVariablePartIO(TuflowPartIO):
+    
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
+        super().__init__(command, variable, line, parent_path, component_type, line_hash)
+        
+    def build_command(self):
+        command_vars = []
+        command = self.raw_command.split()
+        if isinstance(command, list) and len(command) > 1:
+            command_vars = command[1:]
+            command = command[0]
+        self.command = iofields.CommandField(command, params=command_vars)
+        
+    def get_custom_variables(self):
+        return [self.command.params[0], self.variables[0].value]
 
         
-class TuflowTableLinksCommandIO(TuflowGisCommandIO):
-    """Specialised version of the TuflowGisCommandIO class for cross section data.
+class TuflowTableLinksPartIO(TuflowGisPartIO):
+    """Specialised version of the TuflowGisPartIO class for cross section data.
     
     Handles the extra lookups and data handling required for accessing cross section
     data from the GIS file.
     """
     
-    def __init__(self, instruction, variable, line, parent_path, component_type, line_hash):
-        super().__init__(instruction, variable, line, parent_path, component_type, line_hash)
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
+        super().__init__(command, variable, line, parent_path, component_type, line_hash)
         self.read_db()
-        self.VARIABLE_TYPES = ['file']
         
     def read_db(self):
         pass
@@ -122,7 +262,7 @@ class TuflowTableLinksCommandIO(TuflowGisCommandIO):
         #         self.data.append(list(record.items()))
         
 
-class TuflowMaterialsCommandIO(TuflowFileCommandIO):
+class TuflowMaterialsPartIO(TuflowFilePartIO):
     """TODO: This class won't currently handle the use of the piped
              adjustment factor for materials. It will just see the
              pipe and try and treat it as a piped file.
@@ -134,9 +274,8 @@ class TuflowMaterialsCommandIO(TuflowFileCommandIO):
              class, just not sure where; perhaps in file_io?
     """
     
-    def __init__(self, instruction, variable, line, parent_path, component_type, line_hash):
-        super().__init__(instruction, variable, line, parent_path, component_type, line_hash)
-        self.VARIABLE_TYPES = ['file', 'variable']
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
+        super().__init__(command, variable, line, parent_path, component_type, line_hash)
 
         self.data = []
         # fext = self.file_extension()

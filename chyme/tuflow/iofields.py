@@ -9,82 +9,70 @@
     19 Jan 2022
 """
 
+import os
 import re
 
+from chyme.utils import path as utilspath
 
-class TuflowFieldFactory():
+
+class TuflowPath(utilspath.ChymePath):
     
-    def __init__(self, *args, **kwargs):
-        pass
-    
-    def build_instruction(self, instruction, instruction_types, *args, **kwargs):
-        return InstructionField(instruction)
-
-    def build_variables(self, variable, variable_types, *args, **kwargs):
-
-        fields = []
-        if self.is_piped(variable):
-            split_pipes = self.split_pipes(variable)
-            for i, s in enumerate(split_pipes):
-                if self.is_path(variable_types, i):
-                    fields.append(FileField(s))
-                else:
-                    fields.append(VariableField(s))
-        else:
-            variable = variable.strip()
-            if self.is_path(variable_types, 0):
-                fields.append(FileField(variable))
-            else:
-                fields.append(VariableField(variable))
-        return fields
+    def __init__(self, original_path, parent_path, *args, **kwargs):
         
-    def is_piped(self, variable):
-        if '|' in variable:
-            return True
-        return False
-            
-    def split_pipes(self, variable):
-        return variable.strip().replace(' ', '').split('|')
-            
-    def is_path(self, variable_types, idx):
-        if variable_types[0] == 'multifile':
-            return True
-        elif variable_types[idx] == 'file':
-            return True
-        return False
+        # A file extension is not required for mapinfo file paths in TUFLOW. If no extension is 
+        # found we assume mapinfo and put 'mif' on the end
+        if len(os.path.splitext(original_path)) < 2:
+            original_path += '.mif'
+
+        if 'root_dir' in kwargs.keys():
+            abs_path = os.path.normpath(os.path.join(kwargs['root_dir'], original_path))
+        else:
+            parent_dir = os.path.dirname(parent_path)
+            abs_path = os.path.normpath(os.path.join(parent_dir, original_path))
+
+        super().__init__(abs_path, *args, **kwargs)
+        self.parent_path = parent_path
     
 
 class TuflowField():
     
     def __init__(self):
         pass
+    
+    def __repr__(self):
+        return 'Not set'
 
     
-class InstructionField(TuflowField):
+class CommandField(TuflowField):
     
-    def __init__(self, instruction):
-        self.value = instruction
+    def __init__(self, command, *args, **kwargs):
+        super().__init__()
+        self.value = command
+        self.params = kwargs.get('params', [])
+
+    def __repr__(self):
+        params = ' '.join(str(p) for p in self.params) if self.params else ''
+        return '{} {}'.format(self.value, params)#' '.join(str(p) for p in self.params))
         
 
-class FileField(TuflowField):
+class FileField(TuflowField, TuflowPath):
     
-    def __init__(self, filepath):
-        self.value = filepath
+    def __init__(self, original_path, parent_path, *args, **kwargs):
+        TuflowField.__init__(self)
+        TuflowPath.__init__(self, original_path, parent_path, *args, **kwargs)
+        self.value = self.absolute_path
+        self.original_path = original_path
+
+    def __repr__(self):
+        # return '{}'.format(self.filename)
+        return self.filename(include_extension=True)
         
-        
-class MultipleFileField(TuflowField):
-    
-    def __init__(self, filepaths):
-        self.value = filepaths
-        
-        
+
 class VariableField(TuflowField):
     
-    def __init__(self, variable):
-        self.value = variable
+    def __init__(self, variable, *args, **kwargs):
+        super().__init__()
+        self.value = variable.lower()
 
-
-class MultipleVariableField(TuflowField):
-    
-    def __init__(self, variables):
-        self.value = variables
+    def __repr__(self):
+        return '{}'.format(self.value)

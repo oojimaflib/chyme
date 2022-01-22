@@ -18,8 +18,17 @@ class ChymePath():
         # Handle kwargs here
         
     def extension(self):
-        """Return the file extension of this path."""
-        return os.path.splitext(self.absolute_path)[1][1:]
+        """Return the file extension of this path.
+        
+        Note that the extension string is returned without the '.'.
+        
+        Return:
+            str - file extension or empty if there isn't one.
+        """
+        try:
+            return os.path.splitext(self.absolute_path)[1][1:]
+        except IndexError as err:
+            return ''
     
     def directory(self):    
         """Return the director/folder of this path."""
