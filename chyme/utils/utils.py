@@ -38,4 +38,4 @@ def remove_multiple_whitespace(in_str, keep_special_chars=False):
     if not keep_special_chars:
         return ' '.join(in_str.split())
     else:
-        re.sub(' {2,}', ' ', 'The     quick brown    fox')
+        re.sub(' {2,}', ' ', in_str)
