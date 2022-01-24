@@ -529,13 +529,10 @@ class RiverSectionUnitIO(FloodModellerUnitIO):
                       FloatDataField("z", 10, 10),
                       FloatDataField("n", 20, 10),
                       StringDataField("panel", 30, 1),
-                      FloatDataField("rpl", 31, 9,
-                                     blank_value = 1.0),
+                      FloatDataField("rpl", 31, 9),
                       StringDataField("bank_marker", 40, 10),
-                      FloatDataField("easting", 50, 10,
-                                     blank_value = 0.0),
-                      FloatDataField("northing", 60, 10,
-                                     blank_value = 0.0),
+                      FloatDataField("easting", 50, 10),
+                      FloatDataField("northing", 60, 10),
                       StringDataField("deactivation_marker", 70, 10)]))
     ]
     reach_unit = True

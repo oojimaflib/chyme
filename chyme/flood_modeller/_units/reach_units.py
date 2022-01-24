@@ -37,10 +37,22 @@ class RiverSectionUnitCrossSection(XZCrossSection):
             super().__init__(xz)
             self.n_series = Series([[xsp['x'], xsp['n']] for xsp in io_xs],
                                    interpolate_method='stepwise')
-            self.rpl_series = Series([[xsp['x'], xsp['rpl']] for xsp in io_xs])
-            self.loc_series = Series([[xsp['x'],
+
+            rpl_points = list(filter(lambda x: x[1] is not None,
+                                     [[xsp['x'], xsp['rpl']] for xsp in io_xs]))
+            if len(rpl_points) > 1:
+                self.rpl_series = Series(rpl_points)
+            else:
+                self.rpl_series = None
+
+            loc_points = list(filter(lambda x: x[1] is not None and x[2] is not None,
+                                     [[xsp['x'],
                                        xsp['easting'], xsp['northing']]
-                                      for xsp in io_xs])
+                                      for xsp in io_xs]))
+            if len(loc_points) > 1:
+                self.loc_series = Series(loc_points)
+            else:
+                self.loc_series = None
 
             self.panel_boundaries = []
             if not io_xs[0]['panel'] == '*':
