@@ -251,7 +251,7 @@ class StringData(FieldData):
                 return DataFileMessage("No value supplied, but blank values are not permitted.",
                                        Message.ERROR,
                                        logger_name = __name__,
-                                       attribute_name = field.attribute_name)
+                                       attribute_name = self.field.attribute_name)
 
         self.is_valid = True
         if self.field.valid_values is not None:
@@ -261,7 +261,7 @@ class StringData(FieldData):
             return DataFileMessage("String value is not valid",
                                    Message.ERROR,
                                    logger_name = __name__,
-                                   attribute_name = field.attribute_name)
+                                   attribute_name = self.field.attribute_name)
         else:
             return None
 

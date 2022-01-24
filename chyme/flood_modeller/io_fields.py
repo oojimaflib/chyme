@@ -522,14 +522,14 @@ class NodeLabelRow(DataRow):
     """Class representing a row/line containing a list of node labels.
 
     """
-    def __init__(self, *, count = 1):
+    def __init__(self, *args, count = 1, **kwargs):
         """Constructor.
 
         Args:
             count: the number of node labels in the row.
         """
         self.count = count
-        super().__init__([])
+        super().__init__([], *args, **kwargs)
 
     def read(self, unit, line_iter, in_line_no = None, in_line = None):
         """Read the line from the file data.
@@ -563,26 +563,59 @@ class NodeLabelRow(DataRow):
             msg = None
         return RowData(data), msg
         
-class LateralTableDataRow(DataRow):
-    """Class representing a row/line from a Lateral inflow table
+class DataRowWithNodeLabels(DataRow):
+    """Class representing a row/line from a data table that starts with a
+    node label.
+
+    This happens in the initial conditions block and in lateral inflow
+    units.
 
     """
-    def __init__(self, fields, *, condition=lambda x: True):
+    def __init__(self,
+                 fields,
+                 node_label_fields = [0],
+                 *args,
+                 condition=lambda x: True):
         """Constructor.
 
         """
         super().__init__(fields, condition=condition)
+        self.node_label_fields = node_label_fields
         self.width_updated = False
 
     def read(self, unit, line_iter, in_line_no = None, in_line = None):
         """Read the line from the file data.
         """
         if not self.width_updated:
-            self.fields[0].width = unit.node_label_length
-            self.fields[1].index = unit.node_label_length
-            self.fields[2].index = unit.node_label_length + 10
+            dw = 0
+            for i, f in enumerate(self.fields):
+                f.index += dw
+                if i in self.node_label_fields:
+                    dw += f.width - unit.node_label_length
+                    f.width = unit.node_label_length
             self.width_updated = True
         return super().read(unit, line_iter, in_line_no, in_line)
+
+# class LateralTableDataRow(DataRow):
+#     """Class representing a row/line from a Lateral inflow table
+
+#     """
+#     def __init__(self, fields, *, condition=lambda x: True):
+#         """Constructor.
+
+#         """
+#         super().__init__(fields, condition=condition)
+#         self.width_updated = False
+
+#     def read(self, unit, line_iter, in_line_no = None, in_line = None):
+#         """Read the line from the file data.
+#         """
+#         if not self.width_updated:
+#             self.fields[0].width = unit.node_label_length
+#             self.fields[1].index = unit.node_label_length
+#             self.fields[2].index = unit.node_label_length + 10
+#             self.width_updated = True
+#         return super().read(unit, line_iter, in_line_no, in_line)
         
 class DataTable:
     """Class representing a table of data in the data file spread over 
@@ -592,7 +625,6 @@ class DataTable:
     def __init__(self,
                  attribute_name,
                  row_count_attribute_name,
-                 # row_type_name,
                  row_spec,
                  *,
                  condition=lambda x: True):
@@ -612,7 +644,6 @@ class DataTable:
         self.attribute_name = attribute_name
         self.row_count_attribute_name = row_count_attribute_name
         self.row_spec = row_spec
-        # self.RowType = type(row_type_name, (object, ), dict())
         self.apply_required = False # CHECK: do we ever need to apply a table during the parse?
         self.condition = condition
 

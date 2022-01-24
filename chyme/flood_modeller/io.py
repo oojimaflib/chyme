@@ -14,51 +14,46 @@
 
 """
 
+import logging
+logger = logging.getLogger(__name__)
+
 from . import core
 from . import units
 from .io_fields import *
 import copy
+import re
+
 
 class FloodModellerUnitIO:
+    revision_re = re.compile(rb'#REVISION#(?P<rev_no>\d)\s*', re.I)
+
     def __init__(self,
                  first_line,
-                 second_line = None,
                  *args,
                  line_no = None,
-                 node_label_length = 12):
-        # TODO: split first line by removing self.unit_name from the
-        # start and storing the second half and the first-line comment
-        self.line1_comment = first_line.removeprefix(self.unit_name)
-        self.line2_comment = None
-        if second_line is not None:
-            self.line2_comment = second_line.removeprefix(self.subunit_name)
+                 node_label_length = 12,
+                 **kwargs):
+        l1_remainder = self.unit_name_re.sub(b'', first_line)
+        rev_match = self.revision_re.match(l1_remainder)
+        if rev_match:
+            self.revision = int(rev_match['rev_no'])
+            l1_remainder = l1_remainder[rev_match.end():]
+        else:
+            self.revision = 0
+        self.line1_comment = l1_remainder
+
         self.is_valid = False
         self.node_labels = []
         self.data = []
         self.values = dict()
         self.line_no = line_no
         self.node_label_length = node_label_length
-
+    
     def __bool__(self):
         return self.is_valid
 
     def name(self):
         return self.node_labels[0]
-    #     if hasattr(self, 'node_label'):
-    #         return self.node_label
-    #     elif hasattr(self, 'node_label_0'):
-    #         return self.node_label_0
-    #     else:
-    #         raise RuntimeError("Could not get name of unit.")
-
-    # def node_labels(self):
-    #     if hasattr(self, 'node_label'):
-    #         yield self.node_label
-    #     else:
-    #         index = 0
-    #         while hasattr(self, 'node_label_{}'.format(index)):
-    #             yield getattr(self, 'node_label_{}'.format(index))
-    #             index += 1
         
     def read(self, line_iter, in_line_no = None, in_line = None):
         messages = []
@@ -116,13 +111,59 @@ class FloodModellerUnitIO:
         for datum in self.data:
             datum.write(out_data)
 
+class FloodModellerSubUnitIO(FloodModellerUnitIO):
+    def __init__(self,
+                 first_line,
+                 second_line,
+                 *args,
+                 line_no = None,
+                 node_label_length = 12,
+                 **kwargs):
+        super().__init__(first_line, *args,
+                         line_no = line_no,
+                         node_label_length = node_label_length,
+                         **kwargs)
+        # l2_remainder = self.subunit_name_re.sub(b'', second_line)
+        # CHECK: Do we ever get #REVISION#1 on line 2?
+        # self.line2_comment = l2_remainder
+
+class InitialConditionsUnitIO(FloodModellerUnitIO):
+    UnitClass = units.InitialConditions
+    unit_name = b'INITIAL CONDITIONS'
+    unit_name_re = re.compile(rb'INITIAL CONDITIONS\s*')
+    components = [
+        DataRow([]),
+        DataTable("ic_data_table", "general_node_label_count",
+                  DataRowWithNodeLabels([
+                      StringDataField("node_label", 0, 12),
+                      StringDataField("y", 12, 2),
+                      FloatDataField("flow", 14, 10),                      
+                      FloatDataField("stage", 24, 10),                      
+                      FloatDataField("froude", 34, 10),                      
+                      FloatDataField("velocity", 44, 10),                      
+                      FloatDataField("umode", 54, 10),                      
+                      FloatDataField("ustate", 64, 10),                      
+                      FloatDataField("z", 74, 10),                      
+                  ]))
+    ]
+
+class GISInfoUnitIO(FloodModellerUnitIO):
+    UnitClass = units.GISInfo
+    unit_name = b'GISINFO'
+    unit_name_re = re.compile(rb'GISINFO\s*')
+    components = [
+        DataTable("gi_unit_data_table", "file_unit_count", DataRow([])),
+        DataTable("gi_node_data_table", "general_node_label_count", DataRow([]))
+    ]
+    
 class GeneralUnitIO(FloodModellerUnitIO):
     UnitClass = units.GeneralUnit
     unit_name = b''
+    unit_name_re = re.compile(rb'')
 
     rev0_components = [
         DataRow([
-            IntegerDataField("num_units", 0, 10),
+            IntegerDataField("node_label_count", 0, 10, apply_required=True),
             FloatDataField("lower_Fr_transition", 10, 10),
             FloatDataField("upper_Fr_transition", 20, 10),
             FloatDataField("minimum_depth", 30, 10),
@@ -142,7 +183,7 @@ class GeneralUnitIO(FloodModellerUnitIO):
     rev1_components = [
         DataRow([Keyword(b'#REVISION#1')]),
         DataRow([
-            IntegerDataField("num_units", 0, 10),
+            IntegerDataField("node_label_count", 0, 10, apply_required=True),
             FloatDataField("lower_Fr_transition", 10, 10),
             FloatDataField("upper_Fr_transition", 20, 10),
             FloatDataField("minimum_depth", 30, 10),
@@ -185,11 +226,12 @@ class GeneralUnitIO(FloodModellerUnitIO):
             
 
 class FloodModellerUnitGroupIO:
-    pass
+    components = None
 
 class AbstractionUnitIO(FloodModellerUnitIO):
     UnitClass = units.AbstractionUnit
     unit_name = b'ABSTRACTION'
+    unit_name_re = re.compile(rb'ABSTRACTION\s*', re.I)
     components = [
         NodeLabelRow(),
         DataRow([FreeStringDataField("control_method")]),
@@ -220,10 +262,12 @@ class AbstractionUnitIO(FloodModellerUnitIO):
     ]
     reach_unit = False
 
-class ArchBridgeUnitIO(FloodModellerUnitIO):
+class ArchBridgeUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.ArchBridgeUnit
     unit_name = b'BRIDGE'
+    unit_name_re = re.compile(rb'BRIDGE\s*', re.I)
     subunit_name = b'ARCH'
+    subunit_name_re = re.compile(rb'ARCH\s*', re.I)
     components = [
         NodeLabelRow(count=6),
         DataRow([StringDataField("friction_method", 0, 10,
@@ -257,10 +301,12 @@ class ArchBridgeUnitIO(FloodModellerUnitIO):
     ]
     reach_unit = False
 
-class USBPRBridgeUnitIO(FloodModellerUnitIO):
+class USBPRBridgeUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.ArchBridgeUnit
     unit_name = b'BRIDGE'
+    unit_name_re = re.compile(rb'BRIDGE\s*', re.I)
     subunit_name = b'USBPR1978'
+    subunit_name_re = re.compile(rb'USBPR1978\s*', re.I)
     components = [
         NodeLabelRow(count=6),
         DataRow([StringDataField("friction_method", 0, 10,
@@ -322,15 +368,18 @@ class USBPRBridgeUnitIO(FloodModellerUnitIO):
 
 class BridgeUnitGroupIO(FloodModellerUnitGroupIO):
     unit_name = b'BRIDGE'
+    unit_name_re = re.compile(rb'BRIDGE\s*', re.I)
     subunits = [
         ArchBridgeUnitIO,
         USBPRBridgeUnitIO,
     ]
 
-class CircularConduitUnitIO(FloodModellerUnitIO):
+class CircularConduitUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.CircularConduitUnit
     unit_name = b'CONDUIT'
+    unit_name_re = re.compile(rb'CONDUIT\s*', re.I)
     subunit_name = b'CIRCULAR'
+    subunit_name_re = re.compile(rb'CIRCULAR\s*', re.I)
     components = [
         NodeLabelRow(count=7),
         DataRow([FloatDataField("chainage", 0, 10)]),
@@ -354,10 +403,12 @@ class CircularConduitUnitIO(FloodModellerUnitIO):
     ]
     reach_unit = True
     
-class RectangularConduitUnitIO(FloodModellerUnitIO):
+class RectangularConduitUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.RectangularConduitUnit
     unit_name = b'CONDUIT'
+    unit_name_re = re.compile(rb'CONDUIT\s*', re.I)
     subunit_name = b'RECTANGULAR'
+    subunit_name_re = re.compile(rb'RECTANGULAR\s*', re.I)
     components = [
         NodeLabelRow(count=7),
         DataRow([FloatDataField("chainage", 0, 10)]),
@@ -383,10 +434,12 @@ class RectangularConduitUnitIO(FloodModellerUnitIO):
     ]
     reach_unit = True
     
-class FullArchConduitUnitIO(FloodModellerUnitIO):
+class FullArchConduitUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.FullArchConduitUnit
     unit_name = b'CONDUIT'
+    unit_name_re = re.compile(rb'CONDUIT\s*', re.I)
     subunit_name = b'FULLARCH'
+    subunit_name_re = re.compile(rb'FULLARCH\s*', re.I)
     components = [
         NodeLabelRow(count=7),
         DataRow([FloatDataField("chainage", 0, 10)]),
@@ -411,10 +464,12 @@ class FullArchConduitUnitIO(FloodModellerUnitIO):
     ]
     reach_unit = True
     
-class SprungArchConduitUnitIO(FloodModellerUnitIO):
+class SprungArchConduitUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.SprungArchConduitUnit
     unit_name = b'CONDUIT'
+    unit_name_re = re.compile(rb'CONDUIT\s*', re.I)
     subunit_name = b'SPRUNGARCH'
+    subunit_name_re = re.compile(rb'SPRUNGARCH\s*', re.I)
     components = [
         NodeLabelRow(count=7),
         DataRow([FloatDataField("chainage", 0, 10)]),
@@ -443,6 +498,7 @@ class SprungArchConduitUnitIO(FloodModellerUnitIO):
     
 class ConduitUnitGroupIO(FloodModellerUnitGroupIO):
     unit_name = b'CONDUIT'
+    unit_name_re = re.compile(rb'CONDUIT\s*', re.I)
     subunits = [
         CircularConduitUnitIO,
         RectangularConduitUnitIO,
@@ -450,10 +506,12 @@ class ConduitUnitGroupIO(FloodModellerUnitGroupIO):
         SprungArchConduitUnitIO,
     ]
     
-class OpenJunctionUnitIO(FloodModellerUnitIO):
+class OpenJunctionUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.JunctionUnit
     unit_name = b'JUNCTION'
+    unit_name_re = re.compile(rb'JUNCTION\s*', re.I)
     subunit_name = b'OPEN'
+    subunit_name_re = re.compile(rb'OPEN\s*', re.I)
     components = [
         NodeLabelRow(count=0),
     ]
@@ -461,10 +519,12 @@ class OpenJunctionUnitIO(FloodModellerUnitIO):
     
     conserve = 'water_level'
         
-class EnergyJunctionUnitIO(FloodModellerUnitIO):
+class EnergyJunctionUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.JunctionUnit
     unit_name = b'JUNCTION'
+    unit_name_re = re.compile(rb'JUNCTION\s*', re.I)
     subunit_name = b'ENERGY'
+    subunit_name_re = re.compile(rb'ENERGY\s*', re.I)
     components = [
         NodeLabelRow(count=0),
     ]
@@ -474,14 +534,39 @@ class EnergyJunctionUnitIO(FloodModellerUnitIO):
         
 class JunctionUnitGroupIO(FloodModellerUnitGroupIO):
     unit_name = b'JUNCTION'
+    unit_name_re = re.compile(rb'JUNCTION\s*', re.I)
     subunits = [
         OpenJunctionUnitIO,
         EnergyJunctionUnitIO
     ]
         
+class ReservoirUnitIO(FloodModellerUnitIO):
+    UnitClass = units.ReservoirUnit
+    unit_name = b'RESERVOIR'
+    unit_name_re = re.compile(rb'RESERVOIR\s*', re.I)
+    components = [
+        NodeLabelRow(count=0),
+        NodeLabelRow(count=4,
+                     condition=lambda x: x.revision > 0),
+        DataRow([IntegerDataField("sa_row_count", 0, 10, apply_required=True)]),
+        DataTable("za", "za_row_count",
+                  DataRow([
+                      FloatDataField("z", 0, 10),
+                      FloatDataField("a", 10, 10)])),
+        DataRow([
+            FloatDataField("easting", 0, 10),
+            FloatDataField("northing", 10, 10),
+            FloatDataField("runoff_factor", 20, 10)],
+                condition=lambda x: x.revision > 0)
+    ]
+    reach_unit = False
+    
+    conserve = 'water_level'
+        
 class InterpolateUnitIO(FloodModellerUnitIO):
     UnitClass = units.InterpolateUnit
     unit_name = b'INTERPOLATE'
+    unit_name_re = re.compile(rb'^INTER(P(O(L(A(T(E?)?)?)?)?)?)?\s*', re.I)
     components = [
         NodeLabelRow(),
         DataRow([
@@ -497,6 +582,7 @@ class InterpolateUnitIO(FloodModellerUnitIO):
 class ReplicateUnitIO(FloodModellerUnitIO):
     UnitClass = units.ReplicateUnit
     unit_name = b'REPLICATE'
+    unit_name_re = re.compile(rb'^REPLI(C(A(T(E?)?)?)?)?\s*', re.I)
     components = [
         NodeLabelRow(),
         DataRow([
@@ -510,10 +596,12 @@ class ReplicateUnitIO(FloodModellerUnitIO):
     def __init__(self, first_line, *args, **kwargs):
         super().__init__(first_line, *args, **kwargs)
 
-class RiverSectionUnitIO(FloodModellerUnitIO):
+class RiverSectionUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.RiverSectionUnit
     unit_name = b'RIVER'
+    unit_name_re = re.compile(rb'RIVER\s*', re.I)
     subunit_name = b'SECTION'
+    subunit_name_re = re.compile(rb'SECT(I(O(N)?)?)?\s*', re.I)
     components = [
         NodeLabelRow(count=7),
         DataRow([
@@ -540,10 +628,12 @@ class RiverSectionUnitIO(FloodModellerUnitIO):
     def __init__(self, first_line, second_line, *args, **kwargs):
         super().__init__(first_line, second_line, *args, **kwargs)
 
-class RiverMuskinghamVPMCUnitIO(FloodModellerUnitIO):
+class RiverMuskinghamVPMCUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.MuskinghamVPMCUnit
     unit_name = b'RIVER'
+    unit_name_re = re.compile(rb'RIVER\s*', re.I)
     subunit_name = b'MUSK-VPMC'
+    subunit_name_re = re.compile(rb'MUSK-VPMC\s*', re.I)
     components = [
         NodeLabelRow(),
         DataRow([
@@ -565,28 +655,30 @@ class RiverMuskinghamVPMCUnitIO(FloodModellerUnitIO):
         DataRow([StringDataField("data_type", 0, 10, apply_required=True)]),
         DataRow([
             IntegerDataField("vq_row_count", 0, 10, apply_required=True)],
-                condition=lambda x: x.data_type.value == 'VQ RATING'),
+                condition=lambda x: x.values['data_type'] == 'VQ RATING'),
         DataTable("vq", "vq_row_count",
                   DataRow([
                       FloatDataField("v", 0, 10),
                       FloatDataField("q", 10, 10)]),
-                  condition=lambda x: x.data_type.value == 'VQ RATING'),
+                  condition=lambda x: x.values['data_type'] == 'VQ RATING'),
         DataRow([
             FloatDataField("a", 0, 10),
             FloatDataField("b", 10, 10),
             FloatDataField("minimum_velocity", 20, 10),
             FloatDataField("minimum_discharge", 30, 10)],
-                condition=lambda x: x.data_type.value == 'VQ POWER L'),
+                condition=lambda x: x.values['data_type'] == 'VQ POWER L'),
     ]
     reach_unit = True
 
     def __init__(self, first_line, second_line, *args, **kwargs):
         super().__init__(first_line, second_line, *args, **kwargs)
 
-class RiverCESSectionUnitIO(FloodModellerUnitIO):
+class RiverCESSectionUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.CESSectionUnit
     unit_name = b'RIVER'
+    unit_name_re = re.compile(rb'RIVER\s*', re.I)
     subunit_name = b'CES SECTION'
+    subunit_name_re = re.compile(rb'CES SECTION\s*', re.I)
     components = []
     reach_unit = True
     
@@ -595,6 +687,7 @@ class RiverCESSectionUnitIO(FloodModellerUnitIO):
         
 class RiverUnitGroupIO(FloodModellerUnitGroupIO):
     unit_name = b'RIVER'
+    unit_name_re = re.compile(rb'RIVER')
     subunits = [
         RiverSectionUnitIO,
         RiverCESSectionUnitIO,
@@ -604,6 +697,7 @@ class RiverUnitGroupIO(FloodModellerUnitGroupIO):
 class SpillUnitIO(FloodModellerUnitIO):
     UnitClass = units.SpillUnit
     unit_name = b'SPILL'
+    unit_name_re = re.compile(rb'SPILL\s*', re.I)
     components = [
         NodeLabelRow(count=2),
         DataRow([
@@ -617,10 +711,12 @@ class SpillUnitIO(FloodModellerUnitIO):
     ]
     reach_unit = False
 
-class CulvertBendUnitIO(FloodModellerUnitIO):
+class CulvertBendUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.CulvertBendUnit
     unit_name = b'CULVERT'
+    unit_name_re = re.compile(rb'CULVERT\s*', re.I)
     subunit_name = b'BEND'
+    subunit_name_re = re.compile(rb'BEND\s*', re.I)
     components = [
         NodeLabelRow(count=3),
         DataRow([
@@ -630,10 +726,12 @@ class CulvertBendUnitIO(FloodModellerUnitIO):
     ]
     reach_unit = False
     
-class CulvertInletUnitIO(FloodModellerUnitIO):
+class CulvertInletUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.CulvertInletUnit
     unit_name = b'CULVERT'
+    unit_name_re = re.compile(rb'CULVERT\s*', re.I)
     subunit_name = b'INLET'
+    subunit_name_re = re.compile(rb'INLET\s*', re.I)
     components = [
         NodeLabelRow(count=4),
         DataRow([
@@ -659,10 +757,12 @@ class CulvertInletUnitIO(FloodModellerUnitIO):
     ]
     reach_unit = False
 
-class CulvertOutletUnitIO(FloodModellerUnitIO):
+class CulvertOutletUnitIO(FloodModellerSubUnitIO):
     UnitClass = units.CulvertOutletUnit
     unit_name = b'CULVERT'
+    unit_name_re = re.compile(rb'CULVERT\s*', re.I)
     subunit_name = b'OUTLET'
+    subunit_name_re = re.compile(rb'OUTLET\s*', re.I)
     components = [
         NodeLabelRow(count=4),
         DataRow([
@@ -676,6 +776,7 @@ class CulvertOutletUnitIO(FloodModellerUnitIO):
     
 class CulvertStructureUnitGroupIO(FloodModellerUnitGroupIO):
     unit_name = b'CULVERT'
+    unit_name_re = re.compile(rb'CULVERT\s*', re.I)
     subunits = [
         CulvertBendUnitIO,
         CulvertInletUnitIO,
@@ -684,7 +785,8 @@ class CulvertStructureUnitGroupIO(FloodModellerUnitGroupIO):
 
 class LateralUnitIO(FloodModellerUnitIO):
     UnitClass = units.LateralUnit
-    unit_name = b'LATERAL #revision#1'
+    unit_name = b'LATERAL'
+    unit_name_re = re.compile(rb'LATERAL\s*', re.I)
     components = [
         NodeLabelRow(count=1),
         DataRow([StringDataField("distribution_method", 0, 10,
@@ -692,7 +794,7 @@ class LateralUnitIO(FloodModellerUnitIO):
         DataRow([IntegerDataField("lat_row_count", 0, 10,
                                   apply_required=True)]),
         DataTable("lat", "lat_row_count",
-                  LateralTableDataRow([
+                  DataRowWithNodeLabels([
                       StringDataField("node_label", 0, 12),
                       FloatDataField("weight", 12, 10),
                       StringDataField("override", 22, 10,
@@ -703,6 +805,7 @@ class LateralUnitIO(FloodModellerUnitIO):
 class QTBoundaryUnitIO(FloodModellerUnitIO):
     UnitClass = units.QTBoundaryUnit
     unit_name = b'QTBDY'
+    unit_name_re = re.compile(rb'QTBDY\s*', re.I)
     components = [
         NodeLabelRow(count=1),
         DataRow([
@@ -733,6 +836,7 @@ class QTBoundaryUnitIO(FloodModellerUnitIO):
 class HTBoundaryUnitIO(FloodModellerUnitIO):
     UnitClass = units.HTBoundaryUnit
     unit_name = b'HTBDY'
+    unit_name_re = re.compile(rb'HTBDY\s*', re.I)
     components = [
         NodeLabelRow(count=1),
         DataRow([
