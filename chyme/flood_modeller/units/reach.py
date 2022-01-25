@@ -16,7 +16,7 @@
 from chyme.sections import XZCrossSection
 from chyme.utils.series import Series
 
-from ..units import FloodModellerUnit
+from .core import FloodModellerUnit
 
 class ReachFormingUnit(FloodModellerUnit):
     def __init__(self, *args, io, **kwargs):
@@ -246,8 +246,7 @@ class RegularConduitUnit(ReachFormingUnit):
         elif io.values['bottom_slot_flag'] == 'OFF':
             self.bottom_slot = None
         else:
-            raise RuntimeError("Invalid value for bottom slot flag.")
-        
+            raise RuntimeError("Invalid value for bottom slot flag: {}".format(io.values['bottom_slot_flag']))
         if io.values['top_slot_flag'] == 'ON':
             self.top_slot = ( io.values['top_slot_height'],
                                  io.values['top_slot_depth'] )

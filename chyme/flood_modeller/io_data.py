@@ -91,12 +91,12 @@ class KeywordData(FieldData):
         self._value = value_str.rstrip()
 
     def validate(self):
-        self.is_valid = (field.keyword == self._value)
+        self.is_valid = (self.field.keyword == self._value)
         if not self.is_valid:
-            return DataFileMessage("Keyword mis-match: {} != {}".format(field.keyword, self._value),
+            return DataFileMessage("Keyword mis-match: {} != {}".format(self.field.keyword, self._value),
                                    Message.ERROR,
                                    logger_name = __name__,
-                                   attribute_name = field.attribute_name)
+                                   attribute_name = self.field.attribute_name)
         else:
             return None
 
