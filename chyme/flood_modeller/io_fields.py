@@ -551,7 +551,7 @@ class NodeLabelRow(DataRow):
             i = len(data)
             field = StringDataField(self.list_attribute_name,
                                     i*unit.node_label_length,
-                                    (i+1)*unit.node_label_length,
+                                    unit.node_label_length,
                                     justify_left=True, attribute_index=i)
             datum, message = field.read(line, line_no=line_no)
             if self.count == 0 and datum.value is None:
