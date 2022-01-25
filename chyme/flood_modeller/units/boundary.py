@@ -13,7 +13,7 @@
 
 """
 
-from ..units import FloodModellerUnit
+from .core import FloodModellerUnit
 
 class BoundaryUnit(FloodModellerUnit):
     def __init__(self, *args, io, **kwargs):

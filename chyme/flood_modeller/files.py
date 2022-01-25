@@ -30,6 +30,7 @@ class DataFile:
         io.ReplicateUnitIO,
         io.RiverUnitGroupIO,
         io.JunctionUnitGroupIO,
+        io.ReservoirUnitIO,
         io.SpillUnitIO,
         io.CulvertStructureUnitGroupIO,
         io.LateralUnitIO,
@@ -168,7 +169,7 @@ class DataFile:
         
     def lines(self):
         index = 0
-        line_no = 0
+        line_no = 1
         line_end = self.data.find(b'\n')
         if line_end == -1:
             raise RuntimeError("No newlines in flood modeller file.")

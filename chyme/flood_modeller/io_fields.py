@@ -502,7 +502,7 @@ class Rule(DataRow):
                 line_no = in_line_no
                 line = in_line
                     
-            if line.removeprefix('END') != line:
+            if line.removeprefix(b'END') != line:
                 break
             i = len(data)
             field = FreeStringDataField("rule_text", attribute_index=i)
@@ -522,13 +522,18 @@ class NodeLabelRow(DataRow):
     """Class representing a row/line containing a list of node labels.
 
     """
-    def __init__(self, *args, count = 1, **kwargs):
+    def __init__(self,
+                 *args,
+                 count = 1,
+                 list_attribute_name = "node_labels",
+                 **kwargs):
         """Constructor.
 
         Args:
             count: the number of node labels in the row.
         """
         self.count = count
+        self.list_attribute_name = list_attribute_name
         super().__init__([], *args, **kwargs)
 
     def read(self, unit, line_iter, in_line_no = None, in_line = None):
@@ -544,7 +549,7 @@ class NodeLabelRow(DataRow):
         messages = []
         while self.count == 0 or len(data) < self.count:
             i = len(data)
-            field = StringDataField("node_labels",
+            field = StringDataField(self.list_attribute_name,
                                     i*unit.node_label_length,
                                     (i+1)*unit.node_label_length,
                                     justify_left=True, attribute_index=i)

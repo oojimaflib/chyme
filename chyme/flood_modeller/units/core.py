@@ -51,24 +51,3 @@ class GISInfo(FloodModellerUnit):
     def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, auto_implement=True, **kwargs)
 
-class JunctionUnit(FloodModellerUnit):
-    def __init__(self, *args, io, **kwargs):
-        super().__init__(*args, io=io, **kwargs)
-        self.conserve = io.conserve
-
-    def is_junction(self):
-        return True
-
-class ReservoirUnit(FloodModellerUnit):
-    def __init__(self, *args, io, **kwargs):
-        super().__init__(*args, io=io, **kwargs)
-        self.conserve = io.conserve
-
-    def is_junction(self):
-        return True
-
-    
-from ._units.reach_units import *
-from ._units.structure_units import *
-from ._units.boundary_units import *
-
