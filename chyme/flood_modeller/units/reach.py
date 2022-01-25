@@ -1,7 +1,7 @@
 """
  Summary:
 
-    Contains classes for Flood Modeller River Section units
+    Contains classes for Flood Modeller Reach-Forming units
 
  Author:
 
@@ -13,10 +13,19 @@
 
 """
 
-from ..units import ReachFormingUnit
-
 from chyme.sections import XZCrossSection
 from chyme.utils.series import Series
+
+from ..units import FloodModellerUnit
+
+class ReachFormingUnit(FloodModellerUnit):
+    def __init__(self, *args, io, **kwargs):
+        super().__init__(*args, io=io, **kwargs)
+        self.chainage = io.values['chainage']
+
+    def is_reach_component(self):
+        return True
+
 
 class RiverSectionUnitCrossSection(XZCrossSection):
     """Class representing a cross-section from a Flood Modeller network.
@@ -28,10 +37,22 @@ class RiverSectionUnitCrossSection(XZCrossSection):
             super().__init__(xz)
             self.n_series = Series([[xsp['x'], xsp['n']] for xsp in io_xs],
                                    interpolate_method='stepwise')
-            self.rpl_series = Series([[xsp['x'], xsp['rpl']] for xsp in io_xs])
-            self.loc_series = Series([[xsp['x'],
+
+            rpl_points = list(filter(lambda x: x[1] is not None,
+                                     [[xsp['x'], xsp['rpl']] for xsp in io_xs]))
+            if len(rpl_points) > 1:
+                self.rpl_series = Series(rpl_points)
+            else:
+                self.rpl_series = None
+
+            loc_points = list(filter(lambda x: x[1] is not None and x[2] is not None,
+                                     [[xsp['x'],
                                        xsp['easting'], xsp['northing']]
-                                      for xsp in io_xs])
+                                      for xsp in io_xs]))
+            if len(loc_points) > 1:
+                self.loc_series = Series(loc_points)
+            else:
+                self.loc_series = None
 
             self.panel_boundaries = []
             if not io_xs[0]['panel'] == '*':
@@ -209,4 +230,87 @@ class RiverSectionUnit(ReachFormingUnit):
         super().__init__(*args, io=io, **kwargs)
         self.cross_section = RiverSectionUnitCrossSection(io.values['xs'])
         
+class RegularConduitUnit(ReachFormingUnit):
+    friction_methods = ['MANNING', 'COLEBROOK-']
+    
+    def __init__(self, *args, io, **kwargs):
+        super().__init__(*args, io=io, **kwargs)
+        self.friction_method = self.friction_methods.index(io.values['friction_method'])
+        self.invert = io.values['invert']
+        
+        if io.values['bottom_slot_flag'] == 'ON':
+            self.bottom_slot = ( io.values['bottom_slot_height'],
+                                 io.values['bottom_slot_depth'] )
+        elif io.values['bottom_slot_flag'] == 'GLOBAL':
+            self.bottom_slot = ( None, None )
+        elif io.values['bottom_slot_flag'] == 'OFF':
+            self.bottom_slot = None
+        else:
+            raise RuntimeError("Invalid value for bottom slot flag.")
+        
+        if io.values['top_slot_flag'] == 'ON':
+            self.top_slot = ( io.values['top_slot_height'],
+                                 io.values['top_slot_depth'] )
+        elif io.values['top_slot_flag'] == 'GLOBAL':
+            self.top_slot = ( None, None )
+        elif io.values['top_slot_flag'] == 'OFF':
+            self.top_slot = None
+        else:
+            raise RuntimeError("Invalid value for top slot flag.")
+
+class CircularConduitUnit(RegularConduitUnit):
+    def __init__(self, *args, io, **kwargs):
+        super().__init__(*args, io=io, **kwargs)
+        self.diameter = io.values['diameter']
+        self.bottom_friction = io.values['bottom_friction']
+        self.top_friction = io.values['top_friction']
+        
+class RectangularConduitUnit(RegularConduitUnit):
+    def __init__(self, *args, io, **kwargs):
+        super().__init__(*args, io=io, **kwargs)
+        self.width = io.values['width']
+        self.height = io.values['height']
+        self.bottom_friction = io.values['bottom_friction']
+        self.side_friction = io.values['side_friction']
+        self.top_friction = io.values['top_friction']
+        
+class FullArchConduitUnit(RegularConduitUnit):
+    def __init__(self, *args, io, **kwargs):
+        super().__init__(*args, io=io, **kwargs)
+        self.width = io.values['width']
+        self.height = io.values['height']
+        self.bottom_friction = io.values['bottom_friction']
+        self.arch_friction = io.values['arch_friction']
+        
+class SprungArchConduitUnit(RegularConduitUnit):
+    def __init__(self, *args, io, **kwargs):
+        super().__init__(*args, io=io, **kwargs)
+        self.width = io.values['width']
+        self.springing_height = io.values['springing_height']
+        self.arch_height = io.values['arch_height']
+        self.bottom_friction = io.values['bottom_friction']
+        self.side_friction = io.values['side_friction']
+        self.arch_friction = io.values['arch_friction']
+        
+class InterpolateUnit(ReachFormingUnit):
+    def __init__(self, *args, io, **kwargs):
+        super().__init__(*args, io=io, **kwargs)
+        self.easting = io.values['easting']
+        self.northing = io.values['northing']
+
+class ReplicateUnit(ReachFormingUnit):
+    def __init__(self, *args, io, **kwargs):
+        super().__init__(*args, io=io, **kwargs)
+        self.bed_drop = io.values['bed_drop']
+        self.easting = io.values['easting']
+        self.northing = io.values['northing']
+
+class MuskinghamVPMCUnit(ReachFormingUnit):
+    def __init__(self, *args, io, **kwargs):
+        super().__init__(*args, io=io, auto_implement=True, **kwargs)
+
+class CESSectionUnit(ReachFormingUnit):
+    def __init__(self, *args, io, **kwargs):
+        super().__init__(*args, io=io, auto_implement=True, **kwargs)
+
 

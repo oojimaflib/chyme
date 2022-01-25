@@ -14,15 +14,29 @@
 
 """
 
+import logging
+logger = logging.getLogger(__name__)
+
 from . import units
 from . import io
 from .io_data import DataFileMessage, Message
 
 class DataFile:
     valid_units = [
+        io.AbstractionUnitIO,
+        io.BridgeUnitGroupIO,
+        io.ConduitUnitGroupIO,
         io.InterpolateUnitIO,
+        io.ReplicateUnitIO,
         io.RiverUnitGroupIO,
         io.JunctionUnitGroupIO,
+        io.SpillUnitIO,
+        io.CulvertStructureUnitGroupIO,
+        io.LateralUnitIO,
+        io.QTBoundaryUnitIO,
+        io.HTBoundaryUnitIO,
+        io.InitialConditionsUnitIO,
+        io.GISInfoUnitIO,
     ]
     
     def __init__(self, filename):
@@ -50,40 +64,20 @@ class DataFile:
             message.message_text += "General Unit"
             messages.append(message)
 
-        self.units_io = []
-        line_no, next_line = next(line_iter)
-        while next_line.removeprefix(b'INITIAL CONDITIONS') == next_line:
-            line_valid = False
-            for UnitIO in self.valid_units:
-                if next_line.removeprefix(UnitIO.unit_name) != next_line:
-                    line_valid = True
-                    if issubclass(UnitIO, io.FloodModellerUnitGroupIO):
-                        line2_no, second_line = next(line_iter)
-                        #print("Second line: {}".format(second_line))
-                        for SubUnitIO in UnitIO.subunits:
-                            if second_line.removeprefix(SubUnitIO.subunit_name) != second_line:
-                                self.units_io.append(SubUnitIO(next_line, second_line, line_no=line_no))
-                                message = self.units_io[-1].read(line_iter)
-                                if message is not None:
-                                    messages.append(message)
-                                #print(self.units[-1])
-                                break
-                    else:
-                        self.units_io.append(UnitIO(next_line, line_no=line_no))
-                        message = self.units_io[-1].read(line_iter)
-                        if message is not None:
-                            messages.append(message)
-                        #print(self.units[-1])
-                    break
-
-            if not line_valid:
-                msg = DataFileMessage("Skipping line: {}".format(next_line),
-                                      Message.WARNING,
-                                      logger_name = __name__,
-                                      line_no = line_no)
-                messages.append(msg)
-            line_no, next_line = next(line_iter)
+        self.node_label_length = self.general.values['node_label_length']
+        logger.info("DAT file has node label length of %d",
+                    self.node_label_length)
             
+        self.units_io = []
+
+        try:
+            while True:
+                uio = self.match_unit(line_iter)
+                if uio:
+                    self.units_io.append(uio)
+        except StopIteration:
+            pass
+        
         if len(messages) > 0:
             return DataFileMessage("Messages encountered while reading data file.",
                                    children = messages,
@@ -91,6 +85,53 @@ class DataFile:
         else:
             return None
 
+    def match_unit(self, line_iter):
+        line_no, first_line = next(line_iter)
+        for UnitIOType in self.valid_units:
+            if UnitIOType.unit_name_re.match(first_line):
+                if UnitIOType.components:
+                    uio = UnitIOType(first_line,
+                                     line_no=line_no,
+                                     node_label_length = self.node_label_length)
+                    if (UnitIOType == io.InitialConditionsUnitIO or
+                        UnitIOType == io.GISInfoUnitIO):
+                        uio.values['general_node_label_count'] = self.general.values['node_label_count']
+                        uio.values['file_unit_count'] = len(self.units_io) - 1
+                    message = uio.read(line_iter)
+                    if message:
+                        self.messages.append(message)
+                    return uio
+                else:
+                    return self.match_subunit(UnitIOType,
+                                              first_line, line_no,
+                                              line_iter)
+
+        msg = DataFileMessage("Skipping line: {}".format(first_line),
+                              Message.WARNING,
+                              logger_name = __name__,
+                              line_no = line_no)
+        self.messages.append(msg)
+        return None
+
+    def match_subunit(self, UnitGroupIOType, first_line, line_no, line_iter):
+        line2_no, second_line = next(line_iter)
+        for SubUnitIOType in UnitGroupIOType.subunits:
+            if SubUnitIOType.subunit_name_re.match(second_line):
+                suio = SubUnitIOType(first_line, second_line,
+                                     line_no = line_no,
+                                     node_label_length = self.node_label_length)
+                # self.units_io.append(suio)
+                message = suio.read(line_iter)
+                if message:
+                    self.messages.append(message)
+                return suio
+        msg = DataFileMessage("Skipping line: {}".format(first_line),
+                              Message.WARNING,
+                              logger_name = __name__,
+                              line_no = line_no)
+        self.messages.append(msg)
+        return None
+        
     def validate(self):
         messages = []
         for uio in self.units_io:
