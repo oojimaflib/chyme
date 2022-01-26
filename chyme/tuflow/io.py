@@ -16,12 +16,7 @@ import os
 import re
 from dbfread import DBF
 
-from . import core
-# from chyme.tuflow import components
-from chyme.tuflow import iofields
-
-# field_factory = iofields.TuflowFieldFactory()
-
+from . import core, iofields, validators
 
 
 class TuflowPartIO():
@@ -33,16 +28,23 @@ class TuflowPartIO():
           I haven't done it yet, while we see if this is a setup we want to stick
           with, but it's probably a good future idea?
     """
-    # VAR_PATTERN = re.compile('(<<~?\w+~?>>)|(~[seSE]\d{0,2}~)')
     VAR_PATTERN = re.compile('(<<\w+>>)|(<?<?~[seSE]\d{0,2}~>?>?)')
     """Capture all occurances of a string containing either::
         <<SOME_VAR>>: case independent, optional underscores.
-        ~s1~: case independent, may be followed by up to 2 numbers.
-        ~e1~: case independent, may be followed by up to 2 numbers.
-        <<~s1~>>: case independent, may be followed by numbers (also works for ~e~).
+        ~s1~: case independent, may be followed by up to 2 numbers (e.g. ~s~/~s1~/~s11~).
+        ~e1~: case independent, may be followed by up to 2 numbers (e.g. ~e~/~e1~/~e11~).
+        <<~s1~>>: case independent, may be followed by numbers (as above, also works for ~e~).
     """
     
-    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash,
+                 *args, **kwargs):
+        """
+        
+        Args:
+            
+        kwargs:
+        
+        """
         self.original_line = line
         self.component_type = component_type
         self.parent_path = parent_path
@@ -55,12 +57,16 @@ class TuflowPartIO():
         self.files = []
         self.variables = []
         
+        # dict of {'scenarios': [str, ...], 'events': [str, ...]}
+        self.logic = kwargs.pop('logic', [])
+        vals = kwargs.pop('validators', [])
+        self.validators = self._configure_validators(vals)
+        
     def __repr__(self):
         vars = ' '.join(str(v) for v in self.variables) if self.variables else ''
         fpaths = ' | '.join(str(f) for f in self.files) if self.files else ''
         return '{0:<30} {1:<10} {2}{3}'.format(
-            str(self.command), '==', fpaths, vars #' '.join(str(v) for v in self.variables)
-            # 'dkf', '==', fpaths, vars #' '.join(str(v) for v in self.variables)
+            str(self.command), '==', fpaths, vars
         )
         
     def build_command(self):
@@ -68,6 +74,22 @@ class TuflowPartIO():
         
     def build_variables(self):
         self.variables.append(iofields.VariableField(self.raw_variable))
+        
+    def validate(self, variables):
+        """Validate this component.
+
+        Args:
+            
+        
+        Return:
+        
+        """
+        for v in self.validators:
+            if isinstance(v, validators.TuflowVariableValidator) and not v.validate(self.variables):
+                return False
+            if isinstance(v, validators.TuflowPathValidator) and not v.validate(self.files):
+                return False
+        return True
         
     def resolve_custom_variables(self, custom_variables):
         """Replace variable names with their values where found.
@@ -127,7 +149,7 @@ class TuflowPartIO():
                     items = custom_variables['variables'].items()
                     format_str = '<<{}>>'
                 elif m.group(2): # Matches ~s~ or ~e~ style variables
-                    print('group 2')
+                    # print('group 2')
                     format_str = '<<~{}~>>'
                     if '~s' in f.value:
                         items = custom_variables['scenarios'].items()
@@ -151,6 +173,11 @@ class TuflowPartIO():
     def _split_pipes(self, variable):
         pipes = variable.strip().split('|')
         return [p.strip() for p in pipes]
+        
+    def _configure_validators(self, vals):
+        if vals:
+            return [v() for v in vals]
+        return []
     
 
 class TuflowFilePartIO(TuflowPartIO):
@@ -168,12 +195,15 @@ class TuflowFilePartIO(TuflowPartIO):
           It could get messy as one class, but a whole extra class seems overkill?
     """
     EXTENSION_TYPES = {
-        'shp': ['shp', 'shx', 'dbf', 'prj'],
-        'mif': ['mif', 'mid', 'tab'],
+        'shp': ['shp', 'shx', 'dbf'],
+        'mif': ['mif', 'mid'],
     }
+    EXTENSION_TYPE_KEYS = EXTENSION_TYPES.keys()
 
-    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
-        super().__init__(command, variable, line, parent_path, component_type, line_hash)
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash,
+                 *args, **kwargs):
+        super().__init__(command, variable, line, parent_path, component_type, line_hash,
+                         *args, **kwargs)
         self.files = []
         self.extensions_list = []
         
@@ -186,32 +216,67 @@ class TuflowFilePartIO(TuflowPartIO):
         # to exist, unlike the others. I don't think you can combine different file types,
         # So it should be okay to do this?
         ext = self.files[0].extension()
-        if ext in ['shp', 'mif']:
+        if ext in TuflowFilePartIO.EXTENSION_TYPE_KEYS:
             self.extensions_list = TuflowFilePartIO.EXTENSION_TYPES[ext]
-        
+            for f in self.files: f.required_extensions = self.extensions_list
+            
+    def validate(self, variables):
+        ext = self.files[0].extension()
+        for i, v in enumerate(self.validators):
+            if (isinstance(v, validators.TuflowPathValidator) and 
+                ext in TuflowFilePartIO.EXTENSION_TYPE_KEYS
+            ):
+                self.validators[i].required_extensions = TuflowFilePartIO.EXTENSION_TYPES[ext]
+        return super().validate(variables)
 
+    #     for f in self.files:
+    #         if not f.validate(): 
+    #             logger.info('Validation failure: {} - {}'.format(self.command, f.absolute_path))
+    #             return False
+    #     return True
+
+        
 class TuflowControlPartIO(TuflowFilePartIO):
     
-    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
-        super().__init__(command, variable, line, parent_path, component_type, line_hash)
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash,
+                 *args, **kwargs):
+        super().__init__(
+            command, variable, line, parent_path, component_type, line_hash,
+            *args, **kwargs
+        )
 
         
 class TuflowGisPartIO(TuflowFilePartIO):
     
-    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
-        super().__init__(command, variable, line, parent_path, component_type, line_hash)
-        
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash,
+                 *args, **kwargs):
+        super().__init__(
+            command, variable, line, parent_path, component_type, line_hash,
+            *args, **kwargs
+        )
+
         
 class TuflowDomainPartIO(TuflowPartIO):
     
-    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
-        super().__init__(command, variable, line, parent_path, component_type, line_hash)
-
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash,
+                 *args, **kwargs):
+        super().__init__(
+            command, variable, line, parent_path, component_type, line_hash,
+            *args, **kwargs
+        )
+        
+    def validate(self, variables):
+        return True
+    
 
 class TuflowVariablePartIO(TuflowPartIO):
     
-    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
-        super().__init__(command, variable, line, parent_path, component_type, line_hash)
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash,
+                 *args, **kwargs):
+        TuflowPartIO.__init__(
+            self, command, variable, line, parent_path, component_type, line_hash,
+            *args, **kwargs
+        )
             
     def build_variables(self):
         if self._is_piped(self.raw_variable):
@@ -220,12 +285,19 @@ class TuflowVariablePartIO(TuflowPartIO):
                 self.variables.append(iofields.VariableField(v))
         else:
             super().build_variables()
-
+            
+    def variables_list(self):
+        return [v.value for v in self.variables]
+    
 
 class TuflowCustomVariablePartIO(TuflowPartIO):
     
-    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
-        super().__init__(command, variable, line, parent_path, component_type, line_hash)
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash,
+                 *args, **kwargs):
+        super().__init__(
+            command, variable, line, parent_path, component_type, line_hash,
+            *args, **kwargs
+        )
         
     def build_command(self):
         command_vars = []
@@ -237,6 +309,9 @@ class TuflowCustomVariablePartIO(TuflowPartIO):
         
     def get_custom_variables(self):
         return [self.command.params[0], self.variables[0].value]
+    
+    def validate(self, variables):
+        return True
 
         
 class TuflowTableLinksPartIO(TuflowGisPartIO):
@@ -246,9 +321,16 @@ class TuflowTableLinksPartIO(TuflowGisPartIO):
     data from the GIS file.
     """
     
-    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
-        super().__init__(command, variable, line, parent_path, component_type, line_hash)
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash,
+                 *args, **kwargs):
+        super().__init__(
+            command, variable, line, parent_path, component_type, line_hash,
+            *args, **kwargs
+        )
         self.read_db()
+
+    # def validate(self, variables):
+    #     return True
         
     def read_db(self):
         pass
@@ -274,8 +356,12 @@ class TuflowMaterialsPartIO(TuflowFilePartIO):
              class, just not sure where; perhaps in file_io?
     """
     
-    def __init__(self, command, variable, line, parent_path, component_type, line_hash):
-        super().__init__(command, variable, line, parent_path, component_type, line_hash)
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash,
+                 *args, **kwargs):
+        super().__init__(
+            command, variable, line, parent_path, component_type, line_hash,
+            *args, **kwargs
+        )
 
         self.data = []
         # fext = self.file_extension()
@@ -285,6 +371,9 @@ class TuflowMaterialsPartIO(TuflowFilePartIO):
         #     self.load_materials_csv()
         # else:
         #     print('WARNING: Unrecognised materials file extension (not tmf/csv)')
+        
+    def validate(self, variables):
+        return True
         
     # def load_materials_tmf(self):
     #     """Load materials tmf format."""
@@ -319,3 +408,80 @@ class TuflowMaterialsPartIO(TuflowFilePartIO):
     #     if byte_data is not None:
     #         str_data = byte_data.decode('utf-8')
     #         self.data = str_data.split(os.linesep)
+    
+    
+    
+    
+    
+
+
+# class TuflowVariableValidator():
+#
+#
+#     def __init__(self, validation_type=None):
+#         VALIDATORS = {
+#             'int': self.validate_int,
+#             'multi_int': self.validate_multi_int,
+#             'float': self.validate_float,
+#             'multi_float': self.validate_multi_float,
+#             'string': self.validate_string,
+#             'multi_string': self.validate_multi_string,
+#         }
+#         self.validation_type = validation_type
+#         if validation_type is not None:
+#             self.validation_func = VALIDATORS[validation_type] 
+#
+#     def validate(self, values):
+#         if self.validation_type is None: return False
+#         success = self.validation_func(values)
+#         return success
+#
+#     def validate_int(self, values):
+#         if len(values) > 1: return False
+#         try:
+#             int(values[0].value)
+#             return True
+#         except:
+#             print('int fail')
+#             return False
+#         # return isinstance(values[0].value, int)
+#
+#     def validate_float(self, values):
+#         if len(values) > 1: return False
+#         try:
+#             float(values[0].value)
+#             return True
+#         except:
+#             return False
+#         # return isinstance(values[0].value, float)
+#
+#     def validate_string(self, values):
+#         if len(values) > 1: return False
+#         return isinstance(values[0].value, str)
+#
+#     def validate_multi_int(self, values):
+#         success = True
+#         for v in values:
+#             try:
+#                 int(values[0].value)
+#             except:
+#                 success = False
+#         return success
+#         # if not isinstance(v.value, int): return False
+#
+#     def validate_multi_float(self, values):
+#         success = True
+#         for v in values:
+#             try:
+#                 float(values[0].value)
+#             except:
+#                 success = False
+#         return success
+#         # if not isinstance(v.value, float): return False
+#
+#     def validate_multi_string(self, values):
+#         for v in values:
+#             if not isinstance(v.value, str): 
+#                 print('multi str fail')
+#                 return False
+#         return True

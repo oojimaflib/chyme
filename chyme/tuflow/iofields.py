@@ -8,6 +8,8 @@
  Created:
     19 Jan 2022
 """
+import logging
+logger = logging.getLogger(__name__)
 
 import os
 import re
@@ -32,47 +34,63 @@ class TuflowPath(utilspath.ChymePath):
 
         super().__init__(abs_path, *args, **kwargs)
         self.parent_path = parent_path
-    
+
 
 class TuflowField():
     
     def __init__(self):
-        pass
+        self._value = ''
     
     def __repr__(self):
         return 'Not set'
+    
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, value):
+        self._value = value
 
     
 class CommandField(TuflowField):
     
     def __init__(self, command, *args, **kwargs):
         super().__init__()
-        self.value = command
+        self._value = command
         self.params = kwargs.get('params', [])
 
     def __repr__(self):
         params = ' '.join(str(p) for p in self.params) if self.params else ''
-        return '{} {}'.format(self.value, params)#' '.join(str(p) for p in self.params))
-        
+        return '{} {}'.format(self.value, params)
+    
 
 class FileField(TuflowField, TuflowPath):
     
     def __init__(self, original_path, parent_path, *args, **kwargs):
         TuflowField.__init__(self)
         TuflowPath.__init__(self, original_path, parent_path, *args, **kwargs)
-        self.value = self.absolute_path
+        self._value = self.absolute_path
         self.original_path = original_path
+        self._required_extensions = kwargs.get('required_extensions', [])
 
     def __repr__(self):
-        # return '{}'.format(self.filename)
         return self.filename(include_extension=True)
+    
+    @property
+    def required_extensions(self):
+        return self._required_extensions
+    
+    @required_extensions.setter
+    def required_extensions(self, required_extensions):
+        self._required_extensions = required_extensions
         
 
 class VariableField(TuflowField):
     
     def __init__(self, variable, *args, **kwargs):
         super().__init__()
-        self.value = variable.lower()
+        self._value = variable.lower()
 
     def __repr__(self):
         return '{}'.format(self.value)

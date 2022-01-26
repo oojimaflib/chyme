@@ -5,13 +5,7 @@
 ! 2D DOMAIN EXTENT AND RESOLUTION COMMANDS
 Origin == 292725, 6177615		! Bottom left corner (origin) of the 2D grid
 Orientation == 293580, 6177415	! Another point along the X-axis of the 2D grid, used to determine the orientation of the grid
-If Scenario == BAS
-	Cell Size == 5					! 2D cell size in metres
-Else If Scenario == DEV
-	Cell Size == 2
-Else
-	Cell Size == 1
-End If
+Cell Size == <<CELL_SIZE>>		! 2D cell size in metres
 Grid Size (X,Y) == 850, 1000	! 2D grid extent dimensions in metres
 
 !__________________________________________________________________________________________________________

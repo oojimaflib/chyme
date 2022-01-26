@@ -26,7 +26,6 @@ SANDBOX FUNCTIONS
 from chyme.tuflow import core as tuflow_core
 
 def load_estry_only():
-    print('start')
 
     fpath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D.tcf')
     # fpath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D_WithECF.tcf')
@@ -34,7 +33,6 @@ def load_estry_only():
     model = tuflow_core.TuflowModel(fpath)
     model.read()
     
-    print('done')
     
 
 if __name__ == '__main__':

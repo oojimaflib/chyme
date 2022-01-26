@@ -10,6 +10,7 @@
     
 """
 import logging
+from chyme.tuflow.files import TuflowLogic
 logger = logging.getLogger(__name__)
 
 from collections import deque
@@ -44,20 +45,25 @@ class TuflowModel(core.Model):
         loader = TuflowLoader(self.input_path)
         loader.read()
         loader.create_components()
-        loader.resolve_variables()
-        loader.validate()
+        variables = loader.resolve_variables()
+        loader.validate(variables)
         logger.info('TUFLOW model load complete')
         
-        print('\nRead File Dump')
-        for k, comp in loader.components.items():
-            if k == 'control':
-                print('\n(Type: control 1d)')
-                [print(p) for p in comp.parts_1d]
-                print('\n(Type: control 2d)')
-                [print(p) for p in comp.parts_2d['domain_0']]
-            else:
-                print('\n(Type: {})'.format(k))
-                [print(p) for p in comp.parts]
+        # logger.debug('')
+        # logger.debug('########################################')
+        # logger.debug('Read File Dump')
+        # logger.debug('Resolved inputs from model load')
+        # logger.debug('########################################')
+        # logger.debug('')
+        # for k, comp in loader.components.items():
+        #     if k == 'control':
+        #         logger.debug('(Command objects for type: control 1d)')
+        #         [logger.debug(p) for p in comp.parts_1d]
+        #         logger.debug('(Command objects for type: control 2d)')
+        #         [logger.debug(p) for p in comp.parts_2d['domain_0']]
+        #     else:
+        #         logger.debug('(Command objects for type: {})'.format(k))
+        #         [logger.debug(p) for p in comp.parts]
         i=0
 
 class TuflowLoader():
@@ -76,7 +82,11 @@ class TuflowLoader():
         'tcf': 0, 'ecf': 0, 'tgc': 1, 'tbc': 2
     }
     
-    def __init__(self, filepath, se_vals='s NON s1   BAS s2 5m s3 Block e1   Q0100 e2 12hr'):
+    SE_VALS = ''
+    SE_VALS = 's NON s1   BAS s2 10m s3 Block e1   Q0100 e2 12hr'
+    SE_VALS = 's NON s1   DEV s2 2m s3 Block e1   Q0100 e2 12hr'
+    # SE_VALS = 's NON s1   BAS s2 5m s3 Block e1   Q0100 e2 12hr'
+    def __init__(self, filepath, se_vals=SE_VALS):
         self.input_path = os.path.normpath(filepath)
         self.root_dir = os.path.dirname(filepath)
         self.se_vals = files.SEStore.from_string(se_vals)
@@ -86,6 +96,7 @@ class TuflowLoader():
             'geometry': files.TuflowGeometryComponent(),
             'boundary': files.TuflowBoundaryComponent(),
         }
+        self.logic = None
         self.controlfile_read_errors = []
         
     def read(self):
@@ -121,33 +132,97 @@ class TuflowLoader():
         """
         lookup_order = [('tcf', 'control'), ('ecf', 'control'), ('tgc', 'geometry'), ('tbc', 'boundary')]
         lookup = dict(lookup_order)
-        command_factory = files.TuflowPartFactory()
+        part_factory = files.TuflowPartFactory()
+        self.logic = TuflowLogic()
 
         def create_components(raw_data_type):
             for raw in self.raw_files[raw_data_type]:
                 metadata = raw.metadata()
                 component_type = lookup[metadata['tuflow_type']]
                 for d in raw.data:
-                    command = command_factory.create_part(d, metadata['filepath'], metadata['tuflow_type'], metadata['line_num'])
-                    if command:
-                        self.components[component_type].add_part(command)
-                    
+                    # Check if the line has scenario/event logic and parse it if so
+                    is_logic = self.logic.parse_logic(d)
+                    if not is_logic:
+
+                        # Probably a good idea to put the current state into temporary variables
+                        # to avoid mutable issues by passing the list(list)'s directly
+                        active_scenarios = self.logic.active_scenarios
+                        active_events = self.logic.active_events
+
+                        # Need a way to track what "Else" actually means. We know it can't 
+                        # be the "if" or "else if" values used in this logic block, so track
+                        # them and provide some "not if these scenarios are being used" values
+                        # TODO: Not sure if this is really stupic and going to get very complicated
+                        #       and hard to update?
+                        non_scenarios = []
+                        if self.logic.previous_logic == self.logic.ELSE_SCENARIO:
+                            non_scenarios = self.logic.non_scenario_list
+
+                        part = part_factory.create_part(
+                            d, metadata['filepath'], metadata['tuflow_type'], metadata['line_num'], 
+                            logic={
+                                'scenarios': active_scenarios, 'events': active_events,
+                                'non_scenarios': non_scenarios,
+                            },
+                        )
+                        if part:
+                            self.components[component_type].add_part(part)
+
         create_components(TuflowLoader.RAW_FILE_ORDER['tcf'])
         create_components(TuflowLoader.RAW_FILE_ORDER['tgc'])
         create_components(TuflowLoader.RAW_FILE_ORDER['tbc'])
 
+        # Clean up the logic and check that all scenarios and events were popped/closed out
+        success = self.logic.finalise_logic()
+        
     def resolve_variables(self):
+        """Update all variable placeholders to the values set in custom variables.
+        
+        In-place resolution of all "<<VARIABLE>>" placeholders with those outlined
+        in the scenario, event and "Set X == Y" configuration. 
+        
+        Generate a variables dict ({'variables': [], 'scenarios': [], 'events': []})
+        to pass to the resolve_custom_variables method on the components. These are
+        derived by searching for TuflowCustomVariableIO objects that fall within the
+        currently setup scenarios/events and passing the values to all TuflowComponentIO
+        objects for search and replace.
+        """
+        # Check if we need to setup any default variables first
+        if not self.se_vals.has_scenarios:
+            if self.components['control'].default_scenarios:
+                self.se_vals.scenarios_from_list(
+                    self.components['control'].default_scenarios
+                )
+        # Get current scenario/event logic lists
+        # scenarios, events = self.se_vals.scenario_event_lists()
+
         # Now resolve some variables
-        variables = self.components['control'].get_custom_variables()
+        variables = self.components['control'].get_custom_variables(self.se_vals)
+        logger.debug('SE Vals: {}'.format(self.se_vals))
+        logger.debug('Variables: {}'.format(variables))
         variables = {
             'variables': variables, 'scenarios': self.se_vals.scenarios, 
             'events': self.se_vals.events
         }
         for k, v in self.components.items():
             v.resolve_custom_variables(variables)
+        return variables
             
-    def validate(self):
-        pass
+    def validate(self, variables):
+        """Run a validation on the loaded data.
+        
+        Calls the validate function on all of the loaded data objects to check whether
+        they state loading has been successfull. 
+        The reason for validation checking is handled by the objects themselves, but
+        includes things like whether filepaths exists, if variables are sensible, etc.
+        """
+        valid = True
+        logger.info('Validating data...')
+        for k, v in self.components.items():
+            if not v.validate(variables): 
+                logger.info('Validation failure == {}-{}'.format(k, v))
+                valid = False
+        logger.info('Validation Passed == {}'.format(valid))
         
     def _fetch_control_files(self, control_files):
         """Load all of the control files in the list recursively.
