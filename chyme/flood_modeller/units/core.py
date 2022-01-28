@@ -24,6 +24,9 @@ class FloodModellerUnit:
         else:
             self.node_labels = io.values['node_labels']
 
+    def __str__(self):
+        return self.__repr__() + " " + str(self.node_labels)
+            
     def name(self):
         return self.node_labels[0]
 
@@ -39,15 +42,27 @@ class FloodModellerUnit:
     def is_junction(self):
         return False
 
+    def connections(self):
+        return list(filter(None, self.node_labels))
+
+    def is_upstream_node_label(self, nl):
+        return False
+
+    def is_downstream_node_label(self, nl):
+        return False
+
 class GeneralUnit(FloodModellerUnit):
     def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, auto_implement=True, **kwargs)
+        self.node_labels = []
 
 class InitialConditions(FloodModellerUnit):
     def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, auto_implement=True, **kwargs)
+        self.node_labels = []
 
 class GISInfo(FloodModellerUnit):
     def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, auto_implement=True, **kwargs)
+        self.node_labels = []
 

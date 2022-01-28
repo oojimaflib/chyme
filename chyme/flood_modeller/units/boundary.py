@@ -30,12 +30,22 @@ class LateralUnit(BoundaryUnit):
     def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, auto_implement=True, **kwargs)
         
+    def is_upstream_node_label(self, nl):
+        return (nl == self.node_labels[0])
+
 class QTBoundaryUnit(BoundaryUnit):
     def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, auto_implement=True, **kwargs)
 
+    def is_downstream_node_label(self, nl):
+        return (nl == self.node_labels[0])
+        
 class HTBoundaryUnit(BoundaryUnit):
     def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, auto_implement=True, **kwargs)
+
+    def is_upstream_node_label(self, nl):
+        return (nl == self.node_labels[0])
+        
 
         

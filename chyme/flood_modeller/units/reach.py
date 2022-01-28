@@ -26,6 +26,12 @@ class ReachFormingUnit(FloodModellerUnit):
     def is_reach_component(self):
         return True
 
+    def is_upstream_node_label(self, nl):
+        return (self.chainage > 0.0)
+
+    def is_downstream_node_label(self, nl):
+        return (self.chainage == 0.0)
+
 
 class RiverSectionUnitCrossSection(XZCrossSection):
     """Class representing a cross-section from a Flood Modeller network.

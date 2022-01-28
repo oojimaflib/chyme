@@ -27,38 +27,27 @@ from itertools import accumulate
 class FloodModellerNode(network.Node):
     """1D node class representing a node in a Flood Modeller network.
     """
-    def __init__(self, unit, *args, **kwargs):
-        super().__init__(name=unit.name(), *args, **kwargs)
-        self.unit = unit
-    #     self.units = []
-    #     self.append_unit(unit)
+    def __init__(self, *args,
+                 junction_unit = None,
+                 node_label = None, **kwargs):
+        if junction_unit:
+            name = ' ↔ '.join(junction_unit.connections())
+        elif node_label:
+            name = node_label
+        else:
+            raise RuntimeError("Cannot construct flood modeller node without either junction unit or node label.")
+        super().__init__(name=name, *args, **kwargs)
+        self.unit = junction_unit
 
-    # def append_unit(self, unit):
-    #     self.units.append(unit)
-    #     for node_label in unit.node_labels:
-    #         if node_label is not None:
-    #             self.add_alias(node_label)
-        
-    # def merge_with(self, other):
-    #     super().merge_with(other)
-    #     for unit in other.units:
-    #         if unit not in self.units:
-    #             self.units.append(unit)
-
-class FloodModellerBoundaryNode(FloodModellerNode):
-    """A location in a Flood Modeller network where an external boundary
-    is applied.
-    """
-    def __init__(self, unit, *args, **kwargs):
-        super().__init__(unit, *args, **kwargs)
-        self.node_label = unit.node_labels[0]
-    
 class FloodModellerBranch(network.Branch):
-
     """1D reach class representing a branch in a Flood Modeller network.
     """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, branch_components,
+                 us_node, ds_node, *args, **kwargs):
+        name = "{} → {}".format(branch_components[0][0].us_name,
+                                branch_components[-1][0].ds_name)
+        super().__init__(name, us_node, ds_node, *args,
+                         components=branch_components, **kwargs)
 
 class FloodModellerStructure(network.Structure):
     """1D reach class representing a structure in a Flood Modeller network.
@@ -69,6 +58,12 @@ class FloodModellerStructure(network.Structure):
         name = "{} → {}".format(self.us_name, self.ds_name)
         super().__init__(name, *args, **kwargs)
 
+    def __str__(self):
+        return self.name
+        
+    def __repr__(self):
+        return self.name
+        
 class FloodModellerReachSection(network.ReachSection):
     """1D reach section class in a Flood Modeller network.
     """
@@ -100,6 +95,12 @@ class FloodModellerReach(network.Reach):
         self.sections = [FloodModellerReachSection(x, unit)
                          for x,unit in zip(self.locations, self.reach_units)]
 
+    def __str__(self):
+        return self.name
+        
+    def __repr__(self):
+        return self.name
+        
 class FloodModellerNetwork(network.Network):
     """1D network class representing a Flood Modeller model.
     """
@@ -140,27 +141,190 @@ class FloodModellerNetwork(network.Network):
         if self.dat_file:
             self.units = self.dat_file.create_units()
 
+        # Build an index of node labels to units:
+        self.node_label_index = dict()
+        for unit in self.units:
+            for nl in unit.connections():
+                if nl in self.node_label_index:
+                    self.node_label_index[nl].append(unit)
+                else:
+                    self.node_label_index[nl] = [unit]
 
         # Build the network
-        reaches = list(self.reaches())
-        structures = list(self.structures())
-        boundaries = list(self.boundaries())
 
-        branch_structures = []
-        for bdy in boundaries:
-            # Find a reach or structure downstream of this boundary
-            for r in reaches:
-                if bdy.name == r.us_name:
-                    # We are connected to a reach
-                    branch_structures = [r]
+        # 1. Build all of the reaches
+        reaches = list(self.reaches())
+        
+        # 2. Combine reaches into simple branches
+        branches = []
+        for reach in reaches:
+            # See if we link to any existing branch
+            for b in branches:
+                if reach.us_name == b[-1].ds_name:
+                    b.append(reach)
                     break
-            if len(branch_structures) == 0:
-                for s in structures:
-                    if bdy.name == s.us_name:
-                        branch_structures = [s]
+                elif reach.ds_name == b[0].us_name:
+                    b.insert(0, reach)
+                    break
+            else:
+                # This reach does not connect to an existing branch
+                branches.append([reach])
+
+        # 3. We may be able to combine branches end-to-end, depending
+        # on how daft the FMP DAT file ordering is.
+        num_changes = 1
+        while num_changes > 0:
+            num_changes = 0
+            for b1 in branches:
+                for b2 in branches:
+                    if b2 == b1:
                         break
+                    if b1[-1].ds_name == b2[0].us_name:
+                        b1 += b2
+                        branches.remove(b2)
+                        num_changes += 1
+                        break
+                    if b2[-1].ds_name == b1[0].us_name:
+                        b2 += b1
+                        branches.remove(b1)
+                        num_changes += 1
+                        break
+
+        # 4. Join branches that are linked by junctions with 2 node-labels
+        j_units = list(filter(lambda u: (u.is_junction() and
+                                         len(u.connections()) == 2),
+                              self.units))
+        num_changes = 1
+        while num_changes > 0:
+            num_changes = 0
+            for j_unit in j_units:
+                connections = j_unit.connections()
+                us_branch = None
+                ds_branch = None
+                for b in branches:
+                    if b[-1].ds_name in connections:
+                        us_branch = b
+                        continue
+                    if b[0].us_name in connections:
+                        ds_branch = b
+                        continue
+                    if us_branch and ds_branch:
+                        break
+
+                if us_branch and ds_branch:
+                    us_branch += ds_branch
+                    branches.remove(ds_branch)
+                    j_units.remove(j_unit)
+                    num_changes += 1
             
+        # 5. Upgrade our branches so that each branch component is now
+        # a list of reaches:
+        branches = [[[r] for r in b] for b in branches]
+
+        # 6. Find junctions with more than two connections and find
+        # the associated branches. Sort these so that the resulting
+        # lists can be tested for equality.
+        j_units += list(filter(lambda u: (u.is_junction() and
+                                          len(u.connections()) > 2), self.units))
+        for j1 in j_units:
+            j1_cons = j1.connections()
+            j1.us_cons = []
+            j1.ds_cons = []
+            j1.bdy_cons = []
+            for nl in j1_cons:
+                for b in branches:
+                    if nl in [r.ds_name for r in b[-1]]:
+                        j1.us_cons.append(b)
+                        continue
+                    elif nl in [r.us_name for r in b[0]]:
+                        j1.ds_cons.append(b)
+                        continue
+                    else:
+                        j1.bdy_cons.append(nl)
+                        continue
+                    raise RuntimeError("What does this connect to? {} {}".format(j1, nl))
+            j1.us_cons.sort(key = id)
+            j1.ds_cons.sort(key = id)
+
+        # 7. Find pairs of junctions that bracket an identical list of
+        # single-reach branches. Merge these branches together and, if
+        # the result is a two-noded junction on either end, merge
+        # upstream and/or downstream
+        for j1 in j_units:
+            if (len(j1.ds_cons) > 1 and
+                sum([len(r) for r in j1.ds_cons]) == len(j1.ds_cons)):
+                # This junction has multiple downstream branches, all
+                # of which are of length 1. Search for it's counterpart:
+                for j2 in j_units:
+                    if j1.ds_cons == j2.us_cons:
+                        # j1 and j2 bracket a set of parallel
+                        # single-item branches that could be merged.
+                        b1 = j1.ds_cons[0]
+                        for b in j1.ds_cons[1:]:
+                            b1[0] += b[0]
+                            branches.remove(b)
+                        j1.ds_cons = [b1]
+                        j2.us_cons = [b1]
+
+                        # Merge complete.
+                        # If j1 has only one upstream connection we
+                        # should be able to merge it to the end of
+                        # another branch:
+                        if len(j1.us_cons) == 1:
+                            j1.us_cons[0] += b1
+                            branches.remove(b1)
+                            b1 = j1.us_cons[0]
+                            j_units.remove(j1)
+                            
+                        # And similarly if j2 has only one downstream
+                        # connection:
+                        if len(j2.ds_cons) == 1:
+                            b1 += j2.ds_cons[0]
+                            branches.remove(j2.ds_cons[0])
+                            j_units.remove(j2)
+                            
+                        break
+
+        # 8. Create node objects
+        self.nodes = [FloodModellerNode(junction_unit = j_unit)
+                      for j_unit in j_units]
+                    
+        # 9. Create branch objects and link with nodes
+        self.branches = []
+        for b in branches:
+            # Find the upstream and downstream nodes for this branch
+            us_node = None
+            ds_node = None
+            for node in self.nodes:
+                if not node.unit:
+                    continue
+                if b in node.unit.ds_cons:
+                    us_node = node
+                    continue
+                if b in node.unit.us_cons:
+                    ds_node = node
+                    continue
+                if us_node and ds_node:
+                    break
+
+            if not us_node:
+                # There is no existing (created from junction unit)
+                # node at the end of this branch. Make one.
+                us_node = FloodModellerNode(node_label = b[0][0].ds_name)
+                self.nodes.append(us_node)
+                
+            if not ds_node:
+                ds_node = FloodModellerNode(node_label = b[-1][0].us_name)
+                self.nodes.append(ds_node)
+
+            branch_obj = FloodModellerBranch(b, us_node, ds_node)
             
+
+    def get_other_unit(self, node_label, unit):
+        for nl_unit in self.node_label_index[node_label]:
+            if nl_unit != unit:
+                return nl_unit
+        return None
 
     def reaches(self):
         reach_units = []
@@ -171,24 +335,18 @@ class FloodModellerNetwork(network.Network):
                     # This unit marks the end of a reach
                     yield FloodModellerReach(reach_units)
                     reach_units = []
+                continue
             elif len(reach_units) > 0:
                 # We have arrived at a non-reach unit with reach units
                 # in hand
                 msg = Message("Sequence of reach units does not end with zero chainage.", message.ERROR)
                 self.messages.append(msg)
-                yield FloodModellerReach(reach_units, partial = True)
+                yield FloodModellerReach(reach_units, partial=True)
                 reach_units = []
-
-    def structures(self):
-        for unit in self.units:
             if unit.is_structure():
                 yield FloodModellerStructure(unit)
+                continue
 
-    def boundaries(self):
-        for unit in self.units:
-            if unit.is_boundary():
-                yield FloodModellerBoundaryNode(unit)
-    
         # Loop through the units in the dat file to build the network
     #     history = []
     #     chainage = 0.0

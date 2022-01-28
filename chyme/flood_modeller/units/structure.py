@@ -28,6 +28,15 @@ class StructureUnit(FloodModellerUnit):
     def ds_node_label(self):
         return self.node_labels[1]
 
+    def connections(self):
+        return self.node_labels[0:2]
+
+    def is_upstream_node_label(self, nl):
+        return (self.node_labels[0] == nl)
+
+    def is_downstream_node_label(self, nl):
+        return (self.node_labels[1] == nl)
+
 class ArchBridgeUnit(StructureUnit):
     def __init__(self, *args, io, **kwargs):
         super().__init__(*args, io=io, auto_implement=True, **kwargs)
