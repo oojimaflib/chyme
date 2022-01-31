@@ -160,7 +160,7 @@ class Branch(NetworkObject):
         self.ds_node = ds_node
         self.route = route
 
-        self.components = []
+        self.components = components
 
 class BranchObject(NetworkObject):
     """A component of a branch.
