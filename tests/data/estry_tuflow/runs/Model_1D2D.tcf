@@ -26,9 +26,15 @@ Else If Scenario == 2m
 	Set TIMESTEP_2D == 1.0
 	Set CELL_SIZE == 2
 Else
-	Set TIMESTEP_1D == 0.75
-	Set TIMESTEP_2D == 1.5
-	Set CELL_SIZE == 5
+	If Scenario == DEV
+		Set TIMESTEP_1D == 0.75
+		Set TIMESTEP_2D == 1.5
+		Set CELL_SIZE == 5
+	Else
+		Set TIMESTEP_1D == 0.25
+		Set TIMESTEP_2D == 0.5
+		Set CELL_SIZE == 1
+	End If
 End If	
 
 Start 1D Domain
@@ -80,8 +86,13 @@ Set IWL == 36.5	! Define an initial 2D water level of 36.5m
 !__________________________________________________________________________________________________________
 ! SIMULATION TIME CONTROL COMMANDS
 Timestep == <<TIMESTEP_2D>>  ! Specifies a 2D computational timestep of 1.5 seconds
-Start Time == 0  ! Specifies a simulation start time of 0 hours
-End Time == 3    ! Specifies a simulation end time of 3 hours
+!Start Time == 0  ! Specifies a simulation start time of 0 hours
+!End Time == 3    ! Specifies a simulation end time of 3 hours
+If Scenario == BAS
+	Read File == SubTcf_1.tcf
+Else
+	Read File == SubTcf_2.tcf
+End If
 
 !__________________________________________________________________________________________________________
 ! OUTPUT CONTROL AND FORMAT COMMANDS

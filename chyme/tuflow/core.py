@@ -10,7 +10,7 @@
     
 """
 import logging
-from chyme.tuflow.files import TuflowLogic
+from chyme.tuflow.io import TuflowControlPartIO
 logger = logging.getLogger(__name__)
 
 from collections import deque
@@ -19,6 +19,7 @@ import os
 
 from chyme import core, d1, d2
 from chyme.utils import utils
+from chyme.tuflow.files import TuflowLogic
 from . import files
 from . import network as tuflow_network
 from .estry import network as estry_network
@@ -31,41 +32,6 @@ class Domain(d2.Domain):
         super().__init__(net)
 
 
-class TuflowModel(core.Model):
-    
-    def __init__(self, filepath):
-        super().__init__()
-        
-        self.input_path = filepath
-        self.domains['1D'] = {}
-        self.domains['2D'] = {'default': d2.Domain}
-        
-    def read(self):
-        logger.info('Loading TUFLOW model...')
-        loader = TuflowLoader(self.input_path)
-        loader.read()
-        loader.create_components()
-        variables = loader.resolve_variables()
-        loader.validate(variables)
-        logger.info('TUFLOW model load complete')
-        
-        # logger.debug('')
-        # logger.debug('########################################')
-        # logger.debug('Read File Dump')
-        # logger.debug('Resolved inputs from model load')
-        # logger.debug('########################################')
-        # logger.debug('')
-        # for k, comp in loader.components.items():
-        #     if k == 'control':
-        #         logger.debug('(Command objects for type: control 1d)')
-        #         [logger.debug(p) for p in comp.parts_1d]
-        #         logger.debug('(Command objects for type: control 2d)')
-        #         [logger.debug(p) for p in comp.parts_2d['domain_0']]
-        #     else:
-        #         logger.debug('(Command objects for type: {})'.format(k))
-        #         [logger.debug(p) for p in comp.parts]
-        i=0
-
 class TuflowLoader():
     """Main file loader class for TUFLOW models.
     
@@ -77,19 +43,17 @@ class TuflowLoader():
         'geometry control file',
         'bc control file',
         'estry control file',
+        'read file',
     ]
     RAW_FILE_ORDER = {
         'tcf': 0, 'ecf': 0, 'tgc': 1, 'tbc': 2
     }
     
-    SE_VALS = ''
-    SE_VALS = 's NON s1   BAS s2 10m s3 Block e1   Q0100 e2 12hr'
-    SE_VALS = 's NON s1   DEV s2 2m s3 Block e1   Q0100 e2 12hr'
-    # SE_VALS = 's NON s1   BAS s2 5m s3 Block e1   Q0100 e2 12hr'
-    def __init__(self, filepath, se_vals=SE_VALS):
+    def __init__(self, filepath, se_vals=''):
         self.input_path = os.path.normpath(filepath)
         self.root_dir = os.path.dirname(filepath)
         self.se_vals = files.SEStore.from_string(se_vals)
+        self.variables = None
         self.raw_files = [[], [], []] # See RAW_FILE_ORDER
         self.components = {
             'control': files.TuflowControlComponent(),
@@ -99,26 +63,24 @@ class TuflowLoader():
         self.logic = None
         self.controlfile_read_errors = []
         
+    def load(self):
+        logger.info('Loading TUFLOW model...')
+        self.read()
+        self.create_components()
+        self.check_logic()
+        se_and_variables = self.resolve_variables()
+        self.validate(se_and_variables)
+        logger.info('TUFLOW model load complete')
+        return se_and_variables
+
     def read(self):
-        """Read in all of the control file data for the TUFLOW  model.
+        """Read in the TUFLOW model contents.
         
-        Creates a files.TuflowRawFile object for every control/configuration file that it 
-        finds while searching all files referenced from the root file down.
+        Start with the input path and work down from there.
         """
-        # Read the root file first. It's a special case
         input_path = os.path.normpath(self.input_path)
-        raw_data = files.TuflowRawFile(input_path)
-        if raw_data.valid_path:
-            control_files = self._load_file(raw_data)
-            
-            # The root file loaded so continue to recursively process all of the other
-            # control files
-            self._fetch_control_files(control_files)
-        else:
-            logger.warning('Failed to load root file: {}'.format(input_path))
-            logger.warning('Exit model load')
-            self.controlfile_read_errors.append(['Root file', input_path])
-            
+        self._read_file(input_path)
+        
     def create_components(self):
         """Structure the loaded data into different components.
         
@@ -133,47 +95,81 @@ class TuflowLoader():
         lookup_order = [('tcf', 'control'), ('ecf', 'control'), ('tgc', 'geometry'), ('tbc', 'boundary')]
         lookup = dict(lookup_order)
         part_factory = files.TuflowPartFactory()
-        self.logic = TuflowLogic()
+        logic_types = []
 
-        def create_components(raw_data_type):
-            for raw in self.raw_files[raw_data_type]:
-                metadata = raw.metadata()
-                component_type = lookup[metadata['tuflow_type']]
-                for d in raw.data:
-                    # Check if the line has scenario/event logic and parse it if so
-                    is_logic = self.logic.parse_logic(d)
-                    if not is_logic:
 
-                        # Probably a good idea to put the current state into temporary variables
-                        # to avoid mutable issues by passing the list(list)'s directly
-                        active_scenarios = self.logic.active_scenarios
-                        active_events = self.logic.active_events
+        def build_components(data_type):
+            nonlocal logic_types
+            nonlocal lookup
 
-                        # Need a way to track what "Else" actually means. We know it can't 
-                        # be the "if" or "else if" values used in this logic block, so track
-                        # them and provide some "not if these scenarios are being used" values
-                        # TODO: Not sure if this is really stupic and going to get very complicated
-                        #       and hard to update?
-                        non_scenarios = []
-                        if self.logic.previous_logic == self.logic.ELSE_SCENARIO:
-                            non_scenarios = self.logic.non_scenario_list
+            for data in self.raw_files[data_type]:
+                    
+                if 'if scenario' in data.line.lower():
+                    logic_types.append('scenario')
+                elif 'if event' in data.line.lower():
+                    logic_types.append('event')
+                elif 'end if' in data.line.lower():
+                    logic_types = logic_types[:-1]
+                    
+                metadata = data.file_info.metadata()
 
-                        part = part_factory.create_part(
-                            d, metadata['filepath'], metadata['tuflow_type'], metadata['line_num'], 
-                            logic={
-                                'scenarios': active_scenarios, 'events': active_events,
-                                'non_scenarios': non_scenarios,
-                            },
-                        )
-                        if part:
-                            self.components[component_type].add_part(part)
+                cur_logic = logic_types[-1] if len(logic_types) > 0 else None
+                part = part_factory.create_part(
+                    data.line, metadata['filepath'], metadata['tuflow_type'], metadata['line_num'], 
+                    logic_type=cur_logic,
+                )
+                if part:
+                    self.components[lookup[metadata['tuflow_type']]].add_part(part)
+                        
+        build_components(TuflowLoader.RAW_FILE_ORDER['tcf'])
+        build_components(TuflowLoader.RAW_FILE_ORDER['tgc'])
+        build_components(TuflowLoader.RAW_FILE_ORDER['tbc'])
 
-        create_components(TuflowLoader.RAW_FILE_ORDER['tcf'])
-        create_components(TuflowLoader.RAW_FILE_ORDER['tgc'])
-        create_components(TuflowLoader.RAW_FILE_ORDER['tbc'])
+    def check_logic(self):
+        """Loop through the components and check the logic for active parts.
+        
+        TODO: Need to reset TuflowFilePartIO.included status to False if calling again.
+              By default all parts have the included flag set to False, but it's updated
+              when checking the logic for the first time. If we go through again 
+              (potentially with different scenario/event values) we will need to reset
+              everything to False again first (or change the approach).
+        """
+            
+        # TuflowLogic object for tracking logic and checking if parts are active or not
+        logic = TuflowLogic(self.se_vals.stripped_scenarios, self.se_vals.stripped_events)
+        
+        for key, domain in self.components['control'].parts_2d.items():
+            for i, part in enumerate(domain):
+                is_logic = logic.check_for_logic(part)
+                if not is_logic:
+                    is_included = False
+                    if logic.is_active():
+                        is_included = True
+                        self.components['control'].parts_2d[key][i].included = is_included
 
-        # Clean up the logic and check that all scenarios and events were popped/closed out
-        success = self.logic.finalise_logic()
+        for i, part in enumerate(self.components['control'].parts_1d):
+            is_logic = logic.check_for_logic(part)
+            if not is_logic:
+                is_included = False
+                if logic.is_active():
+                    is_included = True
+                    self.components['control'].parts_1d[i].included = is_included
+
+        for i, part in enumerate(self.components['geometry'].parts):
+            is_logic = logic.check_for_logic(part)
+            if not is_logic:
+                is_included = False
+                if logic.is_active():
+                    is_included = True
+                    self.components['geometry'].parts[i].included = is_included
+
+        for i, part in enumerate(self.components['boundary'].parts):
+            is_logic = logic.check_for_logic(part)
+            if not is_logic:
+                is_included = False
+                if logic.is_active():
+                    is_included = True
+                    self.components['boundary'].parts[i].included = is_included
         
     def resolve_variables(self):
         """Update all variable placeholders to the values set in custom variables.
@@ -193,22 +189,20 @@ class TuflowLoader():
                 self.se_vals.scenarios_from_list(
                     self.components['control'].default_scenarios
                 )
-        # Get current scenario/event logic lists
-        # scenarios, events = self.se_vals.scenario_event_lists()
 
         # Now resolve some variables
-        variables = self.components['control'].get_custom_variables(self.se_vals)
+        self.variables = self.components['control'].get_custom_variables(self.se_vals)
         logger.debug('SE Vals: {}'.format(self.se_vals))
-        logger.debug('Variables: {}'.format(variables))
-        variables = {
-            'variables': variables, 'scenarios': self.se_vals.scenarios, 
+        logger.debug('Variables: {}'.format(self.variables))
+        se_and_variables = {
+            'variables': self.variables, 'scenarios': self.se_vals.scenarios, 
             'events': self.se_vals.events
         }
         for k, v in self.components.items():
-            v.resolve_custom_variables(variables)
-        return variables
+            v.resolve_custom_variables(se_and_variables)
+        return se_and_variables
             
-    def validate(self, variables):
+    def validate(self, se_and_variables):
         """Run a validation on the loaded data.
         
         Calls the validate function on all of the loaded data objects to check whether
@@ -219,87 +213,52 @@ class TuflowLoader():
         valid = True
         logger.info('Validating data...')
         for k, v in self.components.items():
-            if not v.validate(variables): 
+            if not v.validate(se_and_variables): 
                 logger.info('Validation failure == {}-{}'.format(k, v))
                 valid = False
         logger.info('Validation Passed == {}'.format(valid))
         
-    def _fetch_control_files(self, control_files):
+    def _read_file(self, input_path):
         """Load all of the control files in the list recursively.
         
-        When originally called with a list of control files (TuflowRawData objects) - 
-        found in the root file - it will load them in the order of the list. If, after 
-        the loading the contents of a file, it find references to other control files, 
-        it will branch off to load those instead by calling _fetch_control_files again 
-        with the new list. Once it's finished walking down the files to the point that 
-        there are no more references to load it unwinds, handling any other files it 
-        find along the way and walking the until it gets back up to the root file.
-        
+        When called with a filepath to a control file it will load the data from file,
+        decode it and then call the process function. If, while loading the contents of a file, 
+        it finds references to other control files it will branch off to load those instead 
+        by calling _read_file again with the new path. Once it's finished walking down the 
+        files to the point that there are no more references to load it unwinds, handling 
+        any other files it find along the way until it gets back up to the root file.
+    
         This approach means that the contents of the different types of files are read in
         order, no matter how many subfiles they contain.
         
-        If any of the TuflowRawData objects contain paths that cannot be opened the
-        command and the filepath being used will be added to the 
-        self.controlfile_read_errors list.
-        
-        Args:
-            control_files (list): list of files to read the contents from.
-            
-        """
-        for c in control_files:
-            if c.valid_path:
-                new_control_files = self._load_file(c)
-                self._fetch_control_files(new_control_files)
-                logger.info('{} file loaded: {}'.format(c.tuflow_type, c.filepath))
-            else:
-                logger.warning('Failed to load control file: {}'.format(c.filepath))
-                self.controlfile_read_errors.append([c.command_line, c.filepath])
+        Files are grouped based on contents so we end up with an ordered list (based on file
+        order) for each main component (tcf, tgc, tbc).
     
-    def _load_file(self, raw_data):
-        """Load a byte array of data from a file and process it into a TuflowRawData object.
-        
         Args:
-            raw_data (TuflowRawData): initialised TuflowRawData object.
-        
-        Return:
-            list - containing TuflowRawData objects to process.
+            input_path (str): the path of the file to load.
+    
         """
-        control_files = []
-        with open(raw_data.filepath, 'rb', buffering=0) as infile:
+        raw_file_info = files.TuflowRawFile(input_path)
+        with open(raw_file_info.filepath, 'rb', buffering=0) as infile:
             data = bytearray(infile.readall())
         data.replace(b'#', b'!')
-        str_data, control_files = self._process_data(control_files, data, raw_data.filepath, raw_data.parent_type)
-        raw_data.data = str_data
-        self.raw_files[TuflowLoader.RAW_FILE_ORDER[raw_data.tuflow_type]].append(raw_data)
-        return control_files
+        data = data.decode('utf-8')
+        self._process_data(data, raw_file_info)
         
-    def _process_data(self, control_files, data, parent_path, parent_type, remove_comments=True):
-        """Get the contents of the file as an array of unicode lines.
+    def _process_data(self, data, raw_file_info):
+        """Process the contents of a TUFLOW control file and load into the raw_files list.
         
-        Decodes the contents of the file bytearray into unicode (assuming utf-8, which is
-        the required format for TUFLOW files).
-        Splits the files at each new line based on the OS newline format, gets rid of blank
-        lines and removes comments if set.
-        
-        If any references to other control files are found, a TuflowRawFile object is 
-        created and added to the control_files list which is returned for processing.
-        
-        Returns:
-            tuple(list, list) - containing the file lines in unicode format ([0]) and the
-                TuflowRawFiles files to be processed ([1]).
+        See self._read_file for more information on the recursive approach to order the
+        files.
         """
-        # TUFLOW files should always be utf-8 encoded
-        str_data = data.decode('utf-8') 
-        split_data = str_data.split(os.linesep)
-        str_data = []
+        split_data = data.split(os.linesep)
         line_num = 0
         for row in split_data:
             line_num += 1
             line = row.strip()
             if not line or line[0] == '!':
                 continue
-            str_data.append(line)
-
+    
             # Check to see if it's a configuration file that we need to load
             # If it has an '==' we strip everything out to check the command
             # If it has 'estry control file auto' we find the parent path and
@@ -313,23 +272,43 @@ class TuflowLoader():
                     if os.path.isabs(variable):
                         abs_path = variable
                     else:
-                        abs_path = os.path.join(os.path.dirname(parent_path), variable)
+                        abs_path = os.path.join(os.path.dirname(raw_file_info.filepath), variable)
                     abs_path = os.path.normpath(abs_path)
-                    raw_file = files.TuflowRawFile(
-                        abs_path, parent_path=parent_path, parent_type=parent_type, 
+                    
+                    # Create a new TuflowRawFile to hold the file information
+                    new_raw_file_info = files.TuflowRawFile(
+                        abs_path, parent_path=raw_file_info.parent_path, parent_type=raw_file_info.parent_type, 
                         command=command, command_line=line, line_num=line_num
                     )
-                    control_files.append(raw_file)
+                    # read the contents of the file (recursive bit)
+                    self._read_file(new_raw_file_info.filepath)
+
+                else:
+                    # Add the line to the end of the list for this tuflow type (tcf, tgc, etc)
+                    # The line is stored alongside the raw_file_info in a TuflowRawFileLine object.
+                    self.raw_files[TuflowLoader.RAW_FILE_ORDER[raw_file_info.tuflow_type]].append(
+                        files.TuflowRawFileLine(line, raw_file_info)
+                    )
+
+            # Handle the special case of the ESTRY Auto command which denotes that there is an ESTRY
+            # 'ecf' file with the same name as the current tcf file
             elif 'auto' in line.lower():
                 fixed_line = utils.remove_multiple_whitespace(line).lower()
                 command = 'estry control file auto'
                 if fixed_line.startswith(command):
-                    fpath = os.path.splitext(parent_path)[0]
+                    fpath = os.path.splitext(raw_file_info.filepath)[0]
                     abs_path = fpath + '.ecf'
-                    raw_file = files.TuflowRawFile(
-                        abs_path, parent_path=parent_path, parent_type=parent_type, 
+                    new_raw_file_info = files.TuflowRawFile(
+                        abs_path, parent_path=raw_file_info.parent_path, parent_type=raw_file_info.parent_type, 
                         command=command, command_line=line, line_num=line_num
                     )
-                    control_files.append(raw_file)
-        del(split_data)
-        return str_data, control_files
+                    self._read_file(new_raw_file_info.filepath)
+                else:
+                    self.raw_files[TuflowLoader.RAW_FILE_ORDER[raw_file_info.tuflow_type]].append(
+                        files.TuflowRawFileLine(line, raw_file_info)
+                    )
+
+            else:
+                self.raw_files[TuflowLoader.RAW_FILE_ORDER[raw_file_info.tuflow_type]].append(
+                    files.TuflowRawFileLine(line, raw_file_info)
+                )

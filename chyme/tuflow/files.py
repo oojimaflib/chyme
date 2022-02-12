@@ -10,6 +10,7 @@
 """
 
 import logging
+from chyme.tuflow.io import TuflowLogicPartIO
 logger = logging.getLogger(__name__)
 
 import hashlib
@@ -44,9 +45,9 @@ class SEStore():
         self.scenarios = [''] * 10
         self.events = [''] * 10
         if se_vals and 'scenarios' in se_vals.keys() and isinstance(se_vals['scenarios'], list):
-            self.scenarios = se_vals['scenarios'] 
+            self.scenarios = [s.lower() for s in se_vals['scenarios']]
         if se_vals and 'events' in se_vals.keys() and isinstance(se_vals['events'], list):
-            self.events = se_vals['events'] 
+            self.events = [e.lower() for e in se_vals['events']]
         
     def __bool__(self):
         if not self.se_vals:
@@ -69,6 +70,14 @@ class SEStore():
         for e in self.events:
             if e: return True
         return False
+    
+    @property
+    def stripped_scenarios(self):
+        return [s for s in self.scenarios if s]
+
+    @property
+    def stripped_events(self):
+        return [e for e in self.events if e]
     
     def set_scenarios_from_list(self, scenarios):
         """Set scenarios from a list of scenario values.
@@ -162,7 +171,7 @@ class SEStore():
         """
         scens = [''] * 10
         events = [''] * 10
-        var_split = utils.remove_multiple_whitespace(se_vals).split(' ')
+        var_split = utils.remove_multiple_whitespace(se_vals).lower().split(' ')
         for i in range(0, len(var_split), 2):
             if len(var_split[i]) < 2:
                 if 's' in var_split[i]:
@@ -195,7 +204,10 @@ class TuflowRawFile():
         'bc database': 'bcdbase',
     }
     
-    def __init__(self, filepath, parent_path='', parent_type='', command_line='', command='', line_num=-1):
+    def __init__(
+            self, filepath, parent_path='', parent_type='', command_line='', command='', 
+            line_num=-1
+        ):
         """Setup the raw contents of the file.
         
         There's a few things to do here::
@@ -248,7 +260,14 @@ class TuflowRawFile():
             self.hash = hashlib.md5('{}'.format(filepath).encode('utf-8')).hexdigest()
 
         # Will contain all of the loaded file data once it's been read in
-        self.data = []
+        # self.data = []
+
+        # Contains the has codes for each line read in. Corresponds to the data list
+        # Uses the index of the data list item as the key and the hashcode as the value
+        # self.data_hashes = {}
+        
+        # Marker to set whether the raw data has been converted to components or not
+        # self.components_built = False
         
     @property
     def valid_path(self):
@@ -272,6 +291,12 @@ class TuflowRawFile():
         all_members = self.__dict__.keys()
         return {item: self.__dict__[item] for item in all_members if not item.startswith("_") and not item == 'data'}
     
+class TuflowRawFileLine():
+    
+    def __init__(self, line, file_info):
+        self.line = line
+        self.file_info = file_info
+    
     
 class TuflowComponent():
     """Interface for all TUFLOW component types.
@@ -290,22 +315,18 @@ class TuflowComponent():
         self.parts.append(part)
         
     def get_custom_variables(self, se_vals):
-        """
-        """
-        scens = se_vals.scenarios
-        events = se_vals.events
+   
         var_parts = []
-        # DEBUG: See TuflowControlComponent parts_2d for comments on this approach
         for part in self.parts:
-            if(isinstance(part, io.TuflowCustomVariablePartIO)):
-                if scens.intersection(part.logic['scenarios']):
+            if isinstance(part, io.TuflowCustomVariablePartIO):
+                if part.included:
                     var_parts.append(part.get_custom_variables()) 
-                elif part.logic['non_scenarios'] and scens.difference(part.logic['non_scenarios']):
-                    var_parts.append(part.get_custom_variables()) 
-
-                if scens.intersection(part.logic['events']):
-                    var_parts.append(part.get_custom_variables()) 
-        return var_parts
+        
+        # Convert the list of lists to a dict of {variable:command}
+        # Overwrites previous entries, but this should be correct because we're reading
+        # the file in order
+        output = {v[0]:v[1] for v in var_parts}
+        return output
     
     def resolve_custom_variables(self, variables):
         [p.resolve_custom_variables(variables) for p in self.parts]
@@ -369,37 +390,19 @@ class TuflowControlComponent(TuflowComponent):
             self.active_2d_domain = 'domain_0'
 
     def get_custom_variables(self, se_vals):
-        # Remove emptry strings and convert to set for quick lookups
-        scens = set([s for s in se_vals.scenarios if s])
-        events = set([ e for e in se_vals.events if e])
+
         var_parts = []
-        # DEBUG: FIX (see parts_2d)
         for part in self.parts_1d:
             if isinstance(part, io.TuflowCustomVariablePartIO):
-                if scens.intersection(part.logic['scenarios']):
+                if part.included:
                     var_parts.append(part.get_custom_variables()) 
-                elif part.logic['non_scenarios'] and not scens.intersection(part.logic['non_scenarios']):
-                    var_parts.append(part.get_custom_variables()) 
-
-                if events.intersection(part.logic['events']):
-                    var_parts.append(part.get_custom_variables()) 
-                    
+    
         for k, v in self.parts_2d.items():
             for part in v:
                 if isinstance(part, io.TuflowCustomVariablePartIO):
-                    # This should be fast but I can't make it work (yields on find)
-                    # if any(x in scens for x in part.logic['scenarios']):
-                    # Use this instead for now (still pretty quick)
-                    if scens.intersection(part.logic['scenarios']):
+                    if part.included:
                         var_parts.append(part.get_custom_variables()) 
-                    elif part.logic['non_scenarios'] and not scens.intersection(part.logic['non_scenarios']):
-                        var_parts.append(part.get_custom_variables()) 
-                        
-                    # check for nested ifs (top has scenario, bottom has non-scenario)
-                        
-                    if events.intersection(part.logic['events']):
-                        var_parts.append(part.get_custom_variables()) 
-
+        
         # Convert the list of lists to a dict of {variable:command}
         # Overwrites previous entries, but this should be correct because we're reading
         # the file in order
@@ -500,6 +503,7 @@ class TuflowPartTypes():
             ['bc control file', io.TuflowControlPartIO, {'validators': [validators.TuflowPathValidator]}],
             ['estry control file', io.TuflowControlPartIO, {'validators': [validators.TuflowPathValidator]}],
             ['estry control file auto', io.TuflowControlPartIO, {'validators': [validators.TuflowPathValidator]}],
+            ['read file', io.TuflowControlPartIO, {'validators': [validators.TuflowPathValidator]}],
             ['read materials file', io.TuflowMaterialsPartIO],
             ['read gis', io.TuflowGisPartIO, {'validators': [validators.TuflowPathValidator]}],
             
@@ -513,15 +517,23 @@ class TuflowPartTypes():
             # Domains
             ['start', None], 
             ['end', None],
+            
+            # Logic - "End If" in tier_2
+            ['if', io.TuflowLogicPartIO],
+            ['else if', io.TuflowLogicPartIO],
+            ['else', io.TuflowLogicPartIO],
         ]
         self.tier_2 = {
             'start': [
                 ['start 1d domain', io.TuflowDomainPartIO],
                 ['start 2d domain', io.TuflowDomainPartIO],
+                ['start time', io.TuflowVariablePartIO],
             ],
             'end': [
                 ['end 1d domain', io.TuflowDomainPartIO],
                 ['end 2d domain', io.TuflowDomainPartIO],
+                ['end if', io.TuflowLogicPartIO],
+                ['end time', io.TuflowVariablePartIO],
             ],
             'read gis': [
                 ['read gis table links', io.TuflowTableLinksPartIO, {'validators': [validators.TuflowPathValidator]}],
@@ -530,8 +542,8 @@ class TuflowPartTypes():
                 ['read gis z hx line', io.TuflowGisPartIO, {'validators': [validators.TuflowPathValidator]}],
             ],
             'set': [
-                ['iwl', io.TuflowVariablePartIO],
-                ['mat', io.TuflowVariablePartIO],
+                ['set iwl', io.TuflowVariablePartIO],
+                ['set mat', io.TuflowVariablePartIO],
             ],
             'output': [
                 ['output interval (s)', io.TuflowVariablePartIO, {'validators': [validators.TuflowIntValidator]}],
@@ -611,7 +623,7 @@ class TuflowPartFactory(TuflowPartTypes):
                 command, variable, line, parent_path, component_type, line_hash,
                 *args, **kwargs
             )
-            part_type.build_command()
+            part_type.build_command(*args, **kwargs)
             part_type.build_variables()
             return part_type
         else:
@@ -619,125 +631,151 @@ class TuflowPartFactory(TuflowPartTypes):
         
 
 class TuflowLogic():
+    """Class to handle keeping track of what logic is currently active.
     
-    # Line logic type codes
-    NO_LOGIC = 0
-    NEW_SCENARIO = 1
-    ELSE_SCENARIO = 2
-    ELSEIF_SCENARIO = 2
-    NEW_EVENT = 3
-    END_LOGIC = 4
-
-    # Scenario and event commands
+    """
+    # NEW_SCENARIO = 0
+    # ELSE_SCENARIO = 1
+    # ELSEIF_SCENARIO = 2
+    # END_LOGIC = 3
+    # NO_LOGIC = 4
     SCENARIO_TERMS = ['if scenario', 'else if scenario', 'else', 'end if']
-    EVENT_TERMS = ['define event', 'end define']
     
-    def __init__(self):
-        self.scenario_stack = []
-        self.event_stack = []
-        self.previous_logic = self.END_LOGIC
-        self.found_scenarios = []
-        self.found_events = []
+    
+    class LogicBlock():
+        """Inner class to handle tracking the contents of individual logic blocks.
+        
+        These are the if - else if - else - end if structures. We can track where we are in
+        the blocks, which block is active, etc based on the given scenarios and events.
+        
+        TODO: Currently only checks for scenarios but adding events should be simple as
+              the logic is the same.
+        """
+        IF = 0
+        ELSE_IF = 1
+        ELSE = 2
+        
+        def __init__(self, block_scens, scenarios, events):
+            self.scenarios = scenarios      # provided scenarios passed in to loader
+            self.events = events            # provided events passed in to loader
+            self.active_block = [-1] * 2    # track the active if/else if/else block
+            self.blocks = []                # store if/else if scenario/event data
+            self.current_block = 0          # which of the 'blocks' we are currently in
+            
+            # The first block is always as IF block (obviously), so set it up and check
+            # the scenario/event vals to see if it's active
+            self.current_block_type = self.IF
+            self.blocks.append(block_scens)
+            if self._is_block_active(block_scens, self.scenarios, self.events):
+                self.active_block = [self.current_block, self.IF]
+            
+        def add_elseif(self, block_scens):
+            """Add an Else If block and check if it's active.
+            """
+            self.current_block += 1
+            self.current_block_type = self.ELSE_IF
+            self.blocks.append(block_scens)
+            if self._is_block_active(block_scens, self.scenarios, self.events):
+                self.active_block = [self.current_block, self.ELSE_IF]
+            
+        def add_else(self):
+            """Add an Else block and check if it's active.
+            """
+            self.current_block += 1
+            self.current_block_type = self.ELSE
+            if self._is_block_active([], self.scenarios, self.events):
+                self.active_block = [self.current_block, self.ELSE]
+            
+        def _is_block_active(self, block_scens, scenarios, events):
+            """Check if a block is active.
+            
+            Args:
+                block_scens (list): the scenarios/events for this logic block.
+                scenarios (list): the loader (SEStore) scenarios.
+                events (list): the loader (SEStore) events.
+            
+            Workflow::
+                - If there's already an active block we can skip (it won't be active)
+                - If it's an Else block it's always true, otherwise it would fail the
+                    active block check.
+                - Otherwise check the block scenarios/events against the loader
+                    scenarios and see if there's any matches.
+            """
+            if self.active_block[0] >= 0: # We've already got the active block
+                return False
+            elif self.current_block_type == self.ELSE:
+                return True
 
-        self._scenarios_dirty = False
-        self._events_dirty = False
-        self._active_scenarios = []
-        self._active_events = []
-        self.non_scenario_list = []
+            for b in block_scens:
+                if b in scenarios: 
+                    return True
+            return False
+            
+        # def active_scenarios(self):
+        #     if self.current_block_type == self.ELSE:
+        #         return []
+        #     else:
+        #         return self.blocks[self.current_block]
+            
+        def is_active(self):
+            """Check if TuflowFilePartIO's should be being read as active or not.
+            
+            If we have a currently active block (if/elseif/else) and that block is the
+            one that we are currently in return True, otherwise return False.
+            """
+            if self.active_block[0] >= 0:
+                if self.current_block == self.active_block[0]:
+                    return True
+            return False
+    
+    
+    def __init__(self, scenarios, events):
+        self.input_scenarios = scenarios
+        self.input_events = events
+        self.logic_stack = []
         
-    @property
-    def active_scenarios(self):
-        if not self._scenarios_dirty: return self._active_scenarios
-        self._active_scenarios = []
-        for scen in self.scenario_stack:
-            for s in scen:
-                if s: self._active_scenarios.append(s)
-        self._scenarios_dirty = False
-        return self._active_scenarios
-
-    @property
-    def active_events(self):
-        if not self._events_dirty: return self._active_events
-        self._active_scenarios = []
-        for event in self.event_stack:
-            for e in event:
-                if e: self._active_events.append(e)
-        self._events_dirty = False
-        return self._active_events
+    def is_active(self):
+        """Check if TuflowFilePartIO's should be being read as active or not.
         
-    def finalise_logic(self):
-        scen_list = []
-        event_list = []
-        for s in self.found_scenarios:
-            for ss in s:
-                if not ss in scen_list: scen_list.append(ss)
-        for e in self.found_events:
-            for ee in e:
-                if not ee in event_list: event_list.append(ee)
-        self.found_scenarios = scen_list; del(scen_list)
-        self.found_events = event_list; del(event_list)
+        Loop the logic stack from top to bottom to see if the input scenarios/events
+        (those passed to the loaded) match those in the current logic blocks. If any
+        of the LogicBlock's on the way down return False it means that it's not
+        currently active and we return False. Otherwise it matches the whole tree of
+        the logic and we can return True (it is active).
+        """
+        for l in self.logic_stack:
+            if not l.is_active():
+                return False
+        return True
         
-        if len(self.scenario_stack) == 0 and len(self.event_stack) == 0:
+    def check_for_logic(self, part):
+        """Check whether the given part is TuflowLogicPartIO and set it up if so."""
+        if isinstance(part, io.TuflowLogicPartIO):
+            scens = [v for v in part.variables if v]
+            self._add_logic(part, scens)
             return True
         return False
+
+    def _add_logic(self, part, scens):
+        """Setup a new LogicBlock or update an existing one.
         
-    def parse_logic(self, line):
-        """Check line for TUFLOW logic and handle it if found.
+        If it's an 'If' block we create a new LogicBlock. If it's another section of the
+        current LogicBlock (else if / else) we update it. If we reached an 'End If' we
+        can pop the logic off the stack and move back up the tree one logic block.
         
         Args:
-            
-        Return:
+            part (TuflowFilePartIO): the part to check for logic. 
+            scens (list): the scenario values (variables) contained in the TuflowLogicPartIO.
             
         """
-        remove_comment(line)
-        command, variable = split_line(line)
-        is_logic = False
-
-        if command in self.SCENARIO_TERMS:
-            is_logic = True
-            self._scenarios_dirty = True
-            # end if
-            if command == self.SCENARIO_TERMS[3]:
-                if not self.previous_logic == self.ELSE_SCENARIO:
-                    self.scenario_stack.pop()
-                self.previous_logic = self.END_LOGIC
-            # else
-            elif command == self.SCENARIO_TERMS[2]:
-                self.scenario_stack.pop()
-                # Remove duplicates from the non_scenario's
-                self.non_scenario_list = list(set(self.non_scenario_list))
-                self.previous_logic = self.ELSE_SCENARIO
-
-            else:
-                scens = variable.split('|')
-                # else if
-                if command == self.SCENARIO_TERMS[1]:
-                    self.scenario_stack.pop()
-                    self.non_scenario_list += scens #append([s for s in scens])
-                    self.scenario_stack.append(scens)
-                    self.found_scenarios.append(scens)
-                    self.previous_logic = self.ELSEIF_SCENARIO
-                # if
-                else:
-                    self.non_scenario_list = []
-                    self.non_scenario_list += scens #append([s for s in scens])
-                    self.scenario_stack.append(scens)
-                    self.found_scenarios.append(scens)
-                    self.previous_logic = self.NEW_SCENARIO
-
-        elif command == self.EVENT_TERMS:
-            is_logic = True
-            self._events_dirty = True
-            events = variable.split('|')
-            # end
-            if command == self.EVENT_TERMS[1]:
-                self.event_stack.pop()
-            # define
-            else:
-                self.found_events.append(events)
-                self.event_stack.append(events)
-
-        return is_logic
-
-
-    
+        if part.logic_term == part.IF:
+            self.logic_stack.append(TuflowLogic.LogicBlock(
+                scens, self.input_scenarios, self.input_events
+            ))
+        if part.logic_term == part.ELSE_IF:
+            self.logic_stack[-1].add_elseif(scens)
+        if part.logic_term == part.ELSE:
+            self.logic_stack[-1].add_else()
+        if part.logic_term == part.END_IF:
+            self.logic_stack.pop()
+        

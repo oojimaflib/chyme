@@ -17,6 +17,7 @@ import re
 from dbfread import DBF
 
 from . import core, iofields, validators
+from chyme.utils import utils
 
 
 class TuflowPartIO():
@@ -58,7 +59,10 @@ class TuflowPartIO():
         self.variables = []
         
         # dict of {'scenarios': [str, ...], 'events': [str, ...]}
-        self.logic = kwargs.pop('logic', [])
+        # self.logic = kwargs.pop('logic', [])
+        self.included = False
+        
+        # Any validator class assinged to this part
         vals = kwargs.pop('validators', [])
         self.validators = self._configure_validators(vals)
         
@@ -69,10 +73,10 @@ class TuflowPartIO():
             str(self.command), '==', fpaths, vars
         )
         
-    def build_command(self):
+    def build_command(self, *args, **kwargs):
         self.command = iofields.CommandField(self.raw_command)
         
-    def build_variables(self):
+    def build_variables(self, *args, **kwargs):
         self.variables.append(iofields.VariableField(self.raw_variable))
         
     def validate(self, variables):
@@ -113,6 +117,9 @@ class TuflowPartIO():
         
         # Replace pattern matches in variables
         for v in self.variables:
+            # TODO: Probably need to fix this rather than ignore it?!
+            if isinstance(self, TuflowLogicPartIO): continue
+
             m = re.search(TuflowPartIO.VAR_PATTERN, v.value)
             if m:
                 items = None
@@ -299,7 +306,7 @@ class TuflowCustomVariablePartIO(TuflowPartIO):
             *args, **kwargs
         )
         
-    def build_command(self):
+    def build_command(self, *args, **kwargs):
         command_vars = []
         command = self.raw_command.split()
         if isinstance(command, list) and len(command) > 1:
@@ -310,6 +317,46 @@ class TuflowCustomVariablePartIO(TuflowPartIO):
     def get_custom_variables(self):
         return [self.command.params[0], self.variables[0].value]
     
+    def validate(self, variables):
+        return True
+    
+
+class TuflowLogicPartIO(TuflowPartIO):
+    ALLOWED_TYPES = ['scenario', 'event']
+    IF = 0
+    ELSE_IF = 1
+    ELSE = 2
+    END_IF = 3
+    LOGIC_TERMS = ['if', 'else if', 'else', 'end if']
+    
+    def __init__(self, command, variable, line, parent_path, component_type, line_hash,
+                 *args, **kwargs):
+        super().__init__(
+            command, variable, line, parent_path, component_type, line_hash,
+            *args, **kwargs
+        )
+        self.logic_type = None
+        self.logic_term = None
+    
+    def build_command(self, *args, **kwargs):
+        logic_type = kwargs.pop('logic_type', None)
+        if logic_type is not None and logic_type in self.ALLOWED_TYPES:
+            self.logic_type = logic_type
+        else:
+            if 'scenario' in self.raw_command: self.logic_type = 'scenario'
+            elif 'event' in self.raw_command: self.logic_type = 'event'
+
+        if 'end' in self.raw_command: self.logic_term = self.END_IF
+        elif 'else if' in self.raw_command: self.logic_term = self.ELSE_IF
+        elif 'if' in self.raw_command: self.logic_term = self.IF
+        elif 'else' in self.raw_command: self.logic_term = self.ELSE
+        self.command = iofields.CommandField(self.raw_command)
+        
+    def build_variables(self):
+        if self.raw_variable.strip():
+            variables = self.raw_variable.replace(' ', '').lower().split('|')
+            self.variables = variables
+
     def validate(self, variables):
         return True
 
@@ -410,78 +457,3 @@ class TuflowMaterialsPartIO(TuflowFilePartIO):
     #         self.data = str_data.split(os.linesep)
     
     
-    
-    
-    
-
-
-# class TuflowVariableValidator():
-#
-#
-#     def __init__(self, validation_type=None):
-#         VALIDATORS = {
-#             'int': self.validate_int,
-#             'multi_int': self.validate_multi_int,
-#             'float': self.validate_float,
-#             'multi_float': self.validate_multi_float,
-#             'string': self.validate_string,
-#             'multi_string': self.validate_multi_string,
-#         }
-#         self.validation_type = validation_type
-#         if validation_type is not None:
-#             self.validation_func = VALIDATORS[validation_type] 
-#
-#     def validate(self, values):
-#         if self.validation_type is None: return False
-#         success = self.validation_func(values)
-#         return success
-#
-#     def validate_int(self, values):
-#         if len(values) > 1: return False
-#         try:
-#             int(values[0].value)
-#             return True
-#         except:
-#             print('int fail')
-#             return False
-#         # return isinstance(values[0].value, int)
-#
-#     def validate_float(self, values):
-#         if len(values) > 1: return False
-#         try:
-#             float(values[0].value)
-#             return True
-#         except:
-#             return False
-#         # return isinstance(values[0].value, float)
-#
-#     def validate_string(self, values):
-#         if len(values) > 1: return False
-#         return isinstance(values[0].value, str)
-#
-#     def validate_multi_int(self, values):
-#         success = True
-#         for v in values:
-#             try:
-#                 int(values[0].value)
-#             except:
-#                 success = False
-#         return success
-#         # if not isinstance(v.value, int): return False
-#
-#     def validate_multi_float(self, values):
-#         success = True
-#         for v in values:
-#             try:
-#                 float(values[0].value)
-#             except:
-#                 success = False
-#         return success
-#         # if not isinstance(v.value, float): return False
-#
-#     def validate_multi_string(self, values):
-#         for v in values:
-#             if not isinstance(v.value, str): 
-#                 print('multi str fail')
-#                 return False
-#         return True
