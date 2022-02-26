@@ -70,6 +70,7 @@ class TuflowLoader():
         self.check_logic()
         se_and_variables = self.resolve_variables()
         self.validate(se_and_variables)
+        self.load_subdata()
         logger.info('TUFLOW model load complete')
         return se_and_variables
 
@@ -111,13 +112,19 @@ class TuflowLoader():
                 elif 'end if' in data.line.lower():
                     logic_types = logic_types[:-1]
                     
+                # Get the file information data associated with the file containing this command
                 metadata = data.file_info.metadata()
 
+                # Get the currently active logic type (scenario or event)
                 cur_logic = logic_types[-1] if len(logic_types) > 0 else None
+                
+                # Create a new part based on the line contents, metadata and active logic
                 part = part_factory.create_part(
                     data.line, metadata['filepath'], metadata['tuflow_type'], metadata['line_num'], 
                     logic_type=cur_logic,
                 )
+                # If the line is unrecognised for some reason it will be skipped, otherwise 
+                # TuflowFilePartIO object is created and added to the list of components
                 if part:
                     self.components[lookup[metadata['tuflow_type']]].add_part(part)
                         
@@ -128,48 +135,38 @@ class TuflowLoader():
     def check_logic(self):
         """Loop through the components and check the logic for active parts.
         
-        TODO: Need to reset TuflowFilePartIO.included status to False if calling again.
-              By default all parts have the included flag set to False, but it's updated
-              when checking the logic for the first time. If we go through again 
-              (potentially with different scenario/event values) we will need to reset
-              everything to False again first (or change the approach).
+        Loops through all of the parts in the model compents and sets the 'is_included' status
+        based on the current status of the logic variables (scenarios and events).
+        If a part should be included this value will be set to True, if not it will be reset
+        to False.
+        
+        Users can then simply check the status of is_included to see whether the part
+        should be used under the current scenarios/events.
+        
+        If different logic is needed, the scenario and event values can be updated and the
+        check_logic function re-run to update the is_included status for the new value.
+        When doing this, resolve_variables and validate will need to be re-run to ensure that
+        the correct variables are being used and that necessary files validate.
         """
-            
         # TuflowLogic object for tracking logic and checking if parts are active or not
         logic = TuflowLogic(self.se_vals.stripped_scenarios, self.se_vals.stripped_events)
         
-        for key, domain in self.components['control'].parts_2d.items():
-            for i, part in enumerate(domain):
+        def update_part_include_status(parts, logic):
+            """Set the is_included flag for parts based on the logic status."""
+            for i, part in enumerate(parts):
                 is_logic = logic.check_for_logic(part)
                 if not is_logic:
                     is_included = False
                     if logic.is_active():
                         is_included = True
-                        self.components['control'].parts_2d[key][i].included = is_included
-
-        for i, part in enumerate(self.components['control'].parts_1d):
-            is_logic = logic.check_for_logic(part)
-            if not is_logic:
-                is_included = False
-                if logic.is_active():
-                    is_included = True
-                    self.components['control'].parts_1d[i].included = is_included
-
-        for i, part in enumerate(self.components['geometry'].parts):
-            is_logic = logic.check_for_logic(part)
-            if not is_logic:
-                is_included = False
-                if logic.is_active():
-                    is_included = True
-                    self.components['geometry'].parts[i].included = is_included
-
-        for i, part in enumerate(self.components['boundary'].parts):
-            is_logic = logic.check_for_logic(part)
-            if not is_logic:
-                is_included = False
-                if logic.is_active():
-                    is_included = True
-                    self.components['boundary'].parts[i].included = is_included
+                        parts[i].included = is_included
+                        
+        # Special cased because there can be multiple 'named' 2D domains
+        [update_part_include_status(domain, logic) for k, domain in self.components['control'].parts_2d.items()]
+        # All the others work roughly the same way
+        update_part_include_status(self.components['control'].parts_1d, logic)
+        update_part_include_status(self.components['geometry'].parts, logic)
+        update_part_include_status(self.components['boundary'].parts, logic)
         
     def resolve_variables(self):
         """Update all variable placeholders to the values set in custom variables.
@@ -198,6 +195,7 @@ class TuflowLoader():
             'variables': self.variables, 'scenarios': self.se_vals.scenarios, 
             'events': self.se_vals.events
         }
+        # Resolve variables (i.e. <<VARIABLE>> instances based on ~s~, ~e~ and Set Variable)
         for k, v in self.components.items():
             v.resolve_custom_variables(se_and_variables)
         return se_and_variables
@@ -209,6 +207,9 @@ class TuflowLoader():
         they state loading has been successfull. 
         The reason for validation checking is handled by the objects themselves, but
         includes things like whether filepaths exists, if variables are sensible, etc.
+        
+        This is probably a first pass validation with additional checks required in later
+        stages, mostly to check that referenced files exist and can be loaded.
         """
         valid = True
         logger.info('Validating data...')
@@ -218,6 +219,17 @@ class TuflowLoader():
                 valid = False
         logger.info('Validation Passed == {}'.format(valid))
         
+    def load_subdata(self):
+        """
+        """
+        pass
+        
+        
+    ###############################################################################################
+    #
+    # PROTECTED METHODS
+    #
+    ###############################################################################################
     def _read_file(self, input_path):
         """Load all of the control files in the list recursively.
         

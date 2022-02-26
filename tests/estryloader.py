@@ -27,8 +27,8 @@ SANDBOX FUNCTIONS
 
 from chyme.tuflow import core as tuflow_core
 
-LOG_LEVEL = logging.WARNING
-# LOG_LEVEL = logging.DEBUG
+# LOG_LEVEL = logging.WARNING
+LOG_LEVEL = logging.DEBUG
 # logger = logging.getLogger(__name__)
 # logger.setLevel(logging.WARN)
 logging.getLogger().setLevel(LOG_LEVEL)
@@ -60,7 +60,7 @@ def check_variables(filepath, test_vals):
     else:
         return 'FAILED!!'
     
-def load_tuflow():
+def tuflow_logic_test():
 
     fpath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D.tcf')
     # fpath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D_WithECF.tcf')
@@ -87,6 +87,14 @@ def load_tuflow():
         print('Test {}: {}\t({})'.format(i, r, se_vals_tests[i][0]))
 
     
+def estry_channels():
+    filepath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D.tcf')
+    se_vals = 's NON s1   DEV s2 10m s3 Block e1   Q0100 e2 6hr'
+    loader = tuflow_core.TuflowLoader(filepath, se_vals=se_vals)
+    loader.load()
+    
+    i=0
 
 if __name__ == '__main__':
-    load_tuflow()
+    # tuflow_logic_test()
+    estry_channels()
