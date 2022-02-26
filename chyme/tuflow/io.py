@@ -9,15 +9,25 @@
     14 Jan 2022
 """
 import logging
+from chyme.tuflow import GDAL_AVAILABLE
 logger = logging.getLogger(__name__)
 
-import hashlib
 import os
 import re
-from dbfread import DBF
+
+# Simple DBF file reader used for testing
+# Could be a fallback option when GDAL not available?
+# from dbfread import DBF
+try:
+    from osgeo import gdal
+except ImportError as e:
+    GDAL_AVAILABLE = False
+    logger.warning('GDAL Import Failed!')
+
 
 from . import core, iofields, validators
 from chyme.utils import utils
+from .estry import files as estry_files
 
 
 class TuflowPartIO():
@@ -228,6 +238,9 @@ class TuflowFilePartIO(TuflowPartIO):
             for f in self.files: f.required_extensions = self.extensions_list
             
     def validate(self, variables):
+        """Check that all of the required files exist.
+        
+        """
         ext = self.files[0].extension()
         for i, v in enumerate(self.validators):
             if (isinstance(v, validators.TuflowPathValidator) and 
@@ -374,21 +387,34 @@ class TuflowTableLinksPartIO(TuflowGisPartIO):
             command, variable, line, parent_path, component_type, line_hash,
             *args, **kwargs
         )
-        self.read_db()
+        self.section_data = []
 
-    # def validate(self, variables):
-    #     return True
+    def validate(self, variables):
+        # Check that all paths exist first
+        success = super().validate(variables)
+        if not super().validate(variables): return False
+        if not GDAL_AVAILABLE: return False
+        return self._read_db()
         
-    def read_db(self):
-        pass
-        # fname = self.filenames()[0]
-        # fpath = os.path.join(self.root_dir, fname + '.dbf')
-        # self.keys = []
-        # self.data = []
-        # if os.path.exists(fpath):
-        #     table = DBF(fpath, load=True)
-        #     for record in table:
-        #         self.data.append(list(record.items()))
+    def _read_db(self):
+        success = False
+        filename = self.files[0].filename()
+        abs_path = self.files[0].absolute_path
+        data = gdal.OpenEx(abs_path, gdal.OF_VECTOR)
+        
+        if data is not None:
+            success = True
+            lyr = data.GetLayerByName(filename)
+            lyr.ResetReading()
+            for feat in lyr:
+                feat_def = lyr.GetLayerDefn()
+                metadata = []
+                for i in range(0, feat_def.GetFieldCount()):
+                    # field_def = feat_def.GetFieldDefn(i)
+                    item = feat.GetField(i)
+                    metadata.append(item)
+                self.section_data.append(metadata)
+        return success
         
 
 class TuflowMaterialsPartIO(TuflowFilePartIO):

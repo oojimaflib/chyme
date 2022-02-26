@@ -10,7 +10,6 @@
 """
 
 import logging
-from chyme.tuflow.io import TuflowLogicPartIO
 logger = logging.getLogger(__name__)
 
 import hashlib
@@ -537,6 +536,7 @@ class TuflowPartTypes():
             ],
             'read gis': [
                 ['read gis table links', io.TuflowTableLinksPartIO, {'validators': [validators.TuflowPathValidator]}],
+                ['read gis network', io.TuflowGisPartIO, {'validators': [validators.TuflowPathValidator]}],
                 ['read gis z shape', io.TuflowGisPartIO, {'validators': [validators.TuflowPathValidator]}],
                 ['read gis z line', io.TuflowGisPartIO, {'validators': [validators.TuflowPathValidator]}],
                 ['read gis z hx line', io.TuflowGisPartIO, {'validators': [validators.TuflowPathValidator]}],
@@ -710,12 +710,6 @@ class TuflowLogic():
                 if b in scenarios: 
                     return True
             return False
-            
-        # def active_scenarios(self):
-        #     if self.current_block_type == self.ELSE:
-        #         return []
-        #     else:
-        #         return self.blocks[self.current_block]
             
         def is_active(self):
             """Check if TuflowFilePartIO's should be being read as active or not.
