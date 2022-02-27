@@ -70,7 +70,7 @@ class TuflowPartIO():
         
         # dict of {'scenarios': [str, ...], 'events': [str, ...]}
         # self.logic = kwargs.pop('logic', [])
-        self.included = False
+        self.active = False
         
         # Any validator class assinged to this part
         vals = kwargs.pop('validators', [])
@@ -82,6 +82,9 @@ class TuflowPartIO():
         return '{0:<30} {1:<10} {2}{3}'.format(
             str(self.command), '==', fpaths, vars
         )
+        
+    def is_active(self):
+        return self.active
         
     def build_command(self, *args, **kwargs):
         self.command = iofields.CommandField(self.raw_command)
@@ -401,7 +404,7 @@ class TuflowTableLinksPartIO(TuflowGisPartIO):
         filename = self.files[0].filename()
         abs_path = self.files[0].absolute_path
         data = gdal.OpenEx(abs_path, gdal.OF_VECTOR)
-        
+        contents = []
         if data is not None:
             success = True
             lyr = data.GetLayerByName(filename)
@@ -413,7 +416,10 @@ class TuflowTableLinksPartIO(TuflowGisPartIO):
                     # field_def = feat_def.GetFieldDefn(i)
                     item = feat.GetField(i)
                     metadata.append(item)
-                self.section_data.append(metadata)
+                # self.section_data.append(metadata)
+                self.section_data.append(estry_files.EstryReachSection(abs_path))
+                self.section_data[-1].setup_metadata(metadata)
+                self.section_data[-1].load_rowdata()
         return success
         
 

@@ -318,7 +318,7 @@ class TuflowComponent():
         var_parts = []
         for part in self.parts:
             if isinstance(part, io.TuflowCustomVariablePartIO):
-                if part.included:
+                if part.active:
                     var_parts.append(part.get_custom_variables()) 
         
         # Convert the list of lists to a dict of {variable:command}
@@ -393,13 +393,13 @@ class TuflowControlComponent(TuflowComponent):
         var_parts = []
         for part in self.parts_1d:
             if isinstance(part, io.TuflowCustomVariablePartIO):
-                if part.included:
+                if part.active:
                     var_parts.append(part.get_custom_variables()) 
     
         for k, v in self.parts_2d.items():
             for part in v:
                 if isinstance(part, io.TuflowCustomVariablePartIO):
-                    if part.included:
+                    if part.active:
                         var_parts.append(part.get_custom_variables()) 
         
         # Convert the list of lists to a dict of {variable:command}

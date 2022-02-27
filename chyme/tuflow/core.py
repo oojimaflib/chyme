@@ -135,38 +135,38 @@ class TuflowLoader():
     def check_logic(self):
         """Loop through the components and check the logic for active parts.
         
-        Loops through all of the parts in the model compents and sets the 'is_included' status
+        Loops through all of the parts in the model compents and sets the 'active' status
         based on the current status of the logic variables (scenarios and events).
         If a part should be included this value will be set to True, if not it will be reset
         to False.
         
-        Users can then simply check the status of is_included to see whether the part
+        Users can then simply check the status of active to see whether the part
         should be used under the current scenarios/events.
         
         If different logic is needed, the scenario and event values can be updated and the
-        check_logic function re-run to update the is_included status for the new value.
+        check_logic function re-run to update the active status for the new value.
         When doing this, resolve_variables and validate will need to be re-run to ensure that
         the correct variables are being used and that necessary files validate.
         """
         # TuflowLogic object for tracking logic and checking if parts are active or not
         logic = TuflowLogic(self.se_vals.stripped_scenarios, self.se_vals.stripped_events)
         
-        def update_part_include_status(parts, logic):
-            """Set the is_included flag for parts based on the logic status."""
+        def update_part_active_status(parts, logic):
+            """Set the active flag for parts based on the logic status."""
             for i, part in enumerate(parts):
                 is_logic = logic.check_for_logic(part)
                 if not is_logic:
-                    is_included = False
+                    active = False
                     if logic.is_active():
-                        is_included = True
-                        parts[i].included = is_included
+                        active = True
+                        parts[i].active = active
                         
         # Special cased because there can be multiple 'named' 2D domains
-        [update_part_include_status(domain, logic) for k, domain in self.components['control'].parts_2d.items()]
+        [update_part_active_status(domain, logic) for k, domain in self.components['control'].parts_2d.items()]
         # All the others work roughly the same way
-        update_part_include_status(self.components['control'].parts_1d, logic)
-        update_part_include_status(self.components['geometry'].parts, logic)
-        update_part_include_status(self.components['boundary'].parts, logic)
+        update_part_active_status(self.components['control'].parts_1d, logic)
+        update_part_active_status(self.components['geometry'].parts, logic)
+        update_part_active_status(self.components['boundary'].parts, logic)
         
     def resolve_variables(self):
         """Update all variable placeholders to the values set in custom variables.
