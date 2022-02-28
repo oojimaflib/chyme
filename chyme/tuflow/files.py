@@ -17,7 +17,8 @@ import os
 
 # from chyme.tuflow import components
 from chyme.utils import utils
-from . import io, validators
+from . import io, validators, tuflow_utils
+from chyme.tuflow import datafactories
 
 
 class SEStore():
@@ -345,6 +346,13 @@ class TuflowComponent():
                 return False
         return True
     
+    def build_data(self):
+        build_passed = True
+        for part in self.parts:
+            success = part.build_data()
+            if not success: build_passed = False
+        return build_passed
+    
     
 class TuflowControlComponent(TuflowComponent):
     
@@ -433,6 +441,17 @@ class TuflowControlComponent(TuflowComponent):
                     logger.info('Validation failure: {}'.format(part))
                     return False
         return True
+    
+    def build_data(self):
+        build_passed = True
+        for part in self.parts_1d:
+            success = part.build_data()
+            if not success: build_passed = False
+        for k, v in self.parts_2d.items():
+            for part in v:
+                success = part.build_data()
+                if not success: build_passed = False
+        return build_passed
             
     def _create_2d_domain(self, command_line):
         cmd_split = command_line.split(' ')
@@ -455,42 +474,6 @@ class TuflowBoundaryComponent(TuflowComponent):
     
     def __init__(self):
         super().__init__()
-
-
-def split_line(line):
-    """Split line in command and variable when '==' is found.
-    
-    Set the command and variable values.
-    
-    Args:
-        line (str): the line read in from the control file.
-    """
-    command = ''
-    variable = ''
-    if '==' in line:
-        split_line = line.split('==')
-        command = utils.remove_multiple_whitespace(split_line[0]).lower()
-        variable = split_line[1].strip()
-    else:
-        command = utils.remove_multiple_whitespace(line).lower()
-    return command, variable
-    
-
-def remove_comment(line):
-    """Remove any comments from the file command.
-    
-    Just chuck any comments away.
-    All '#' were replaced with '!' while reading in the byte array so we
-    only have to worry about '!'.
-    
-    Args:
-        line (str): the line read in from the control file.
-        
-    Return:
-        str - line with comments removed.
-    """
-    line = line.split('!', 1)[0]
-    return line
 
 
 class TuflowPartTypes():
@@ -535,11 +518,11 @@ class TuflowPartTypes():
                 ['end time', io.TuflowVariablePartIO],
             ],
             'read gis': [
-                ['read gis table links', io.TuflowTableLinksPartIO, {'validators': [validators.TuflowPathValidator]}],
-                ['read gis network', io.TuflowGisPartIO, {'validators': [validators.TuflowPathValidator]}],
-                ['read gis z shape', io.TuflowGisPartIO, {'validators': [validators.TuflowPathValidator]}],
-                ['read gis z line', io.TuflowGisPartIO, {'validators': [validators.TuflowPathValidator]}],
-                ['read gis z hx line', io.TuflowGisPartIO, {'validators': [validators.TuflowPathValidator]}],
+                ['read gis table links', io.TuflowGisPartIO, {'validators': [validators.TuflowPathValidator], 'factory': datafactories.TuflowTableLinksDataFactory}],
+                ['read gis network', io.TuflowGisPartIO, {'validators': [validators.TuflowPathValidator], 'factory': datafactories.TuflowGisNetworkDataFactory}],
+                ['read gis z shape',  None],
+                ['read gis z line',  None],
+                ['read gis z hx line',  None],
             ],
             'set': [
                 ['set iwl', io.TuflowVariablePartIO],
@@ -570,21 +553,28 @@ class TuflowPartTypes():
                 if t[0] in self.tier_2_keys:
                     t2 = self._fetch_tier2_type(command, t[0])
                     if not t2:
+                        # No configuration found for command
                         if t[1] is None: return False
+                        # If it's found in tier2 but the value is None we can refer back to
+                        # the default setup in tier1 (i.e. use its class and kwargs)
                         else: return t[1:]
                     else:
+                        # If it's found and has its own configuration class and kwargs
+                        # we use those instead
                         return t2
                 else:
-                    if t[1] is not None:
-                        return t[1:]
-                    else:
-                        return False
+                    # If it doesn't exist in the tier2 list use the tier1 setup
+                    if t[1] is not None: return t[1:]
+                    # No configuration found for command
+                    else: return False
+        # Default is to ignore the command
         return part
     
     def _fetch_tier2_type(self, command, command_part):
         part = False
         for t in self.tier_2[command_part]:
             if command.startswith(t[0]):
+                # If we find a revised configuration class and kwargs in tier2, grab them
                 if t[1] is not None:
                     part = t[1:]
                 else:
@@ -607,8 +597,8 @@ class TuflowPartFactory(TuflowPartTypes):
             parent_path, line, line_num).encode('utf-8')
         ).hexdigest()
         
-        line = remove_comment(line)
-        command, variable = split_line(line)
+        line = tuflow_utils.remove_comment(line)
+        command, variable = tuflow_utils.split_line(line)
         part_type = self.fetch_part_type(command)
         if part_type:
             # part = None
@@ -623,8 +613,9 @@ class TuflowPartFactory(TuflowPartTypes):
                 command, variable, line, parent_path, component_type, line_hash,
                 *args, **kwargs
             )
-            part_type.build_command(*args, **kwargs)
-            part_type.build_variables()
+            part_type.build(*args, **kwargs)
+            # part_type.build_command(*args, **kwargs)
+            # part_type.build_instruction()
             return part_type
         else:
             return False

@@ -222,7 +222,13 @@ class TuflowLoader():
     def load_subdata(self):
         """
         """
-        pass
+        valid = True
+        for k, v in self.components.items():
+            if not v.build_data():
+                logger.warning('Failed to load subdata for {}-{}'.format(k, v))
+                valid = False
+        logger.info('Validation Passed == {}'.format(valid))
+
         
         
     ###############################################################################################

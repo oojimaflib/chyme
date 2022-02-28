@@ -64,19 +64,33 @@ class CommandField(TuflowField):
         params = ' '.join(str(p) for p in self.params) if self.params else ''
         return '{} {}'.format(self.value, params)
     
-
-class FileField(TuflowField, TuflowPath):
+        
+class FileField(TuflowField):
     
     def __init__(self, original_path, parent_path, *args, **kwargs):
-        TuflowField.__init__(self)
-        TuflowPath.__init__(self, original_path, parent_path, *args, **kwargs)
-        self._value = self.absolute_path
+        super().__init__()
+        # TuflowPath.__init__(self, original_path, parent_path, *args, **kwargs)
+        # self._value = self.absolute_path
         self.original_path = original_path
+        self._data_loader = kwargs.get('data_loader', None)
         self._required_extensions = kwargs.get('required_extensions', [])
+        self._file = TuflowPath(original_path, parent_path, *args, **kwargs)
+        self._value = original_path
 
     def __repr__(self):
-        return self.filename(include_extension=True)
+        return self._file.filename(include_extension=True)
     
+    @property
+    def file(self):
+        return self._file
+    
+    # TODO: Need to fix how this works to massively improve how path updates happen!
+    #       Basically not implemented at all at the moment in TuflowPath or Path classes.
+    @TuflowField.value.setter
+    def value(self, value):
+        self._value = value
+        self._file = TuflowPath(value, self._file.parent_path)
+
     @property
     def required_extensions(self):
         return self._required_extensions
@@ -85,6 +99,14 @@ class FileField(TuflowField, TuflowPath):
     def required_extensions(self, required_extensions):
         self._required_extensions = required_extensions
         
+    def build_data(self, *args, **kwargs):
+        if self._data_loader is None: 
+            return True
+        else:
+            data_loader = self._data_loader(self.file, *args, **kwargs)
+            success, self.data = data_loader.build_data(*args, **kwargs)
+            return success
+
 
 class VariableField(TuflowField):
     
@@ -94,3 +116,11 @@ class VariableField(TuflowField):
 
     def __repr__(self):
         return '{}'.format(self.value)
+    
+    @property
+    def variable(self):
+        return self._value
+    
+    @variable.setter
+    def variable(self, variable):
+        self._value = variable

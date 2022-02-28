@@ -28,6 +28,7 @@ class ChymePath():
     def file_exists(self):
         return os.path.exists(self.absolute_path)
         
+    @property
     def extension(self):
         """Return the file extension of this path.
         
