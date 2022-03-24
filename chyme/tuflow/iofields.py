@@ -8,6 +8,8 @@
  Created:
     19 Jan 2022
 """
+import logging
+logger = logging.getLogger(__name__)
 
 import os
 import re
@@ -32,47 +34,93 @@ class TuflowPath(utilspath.ChymePath):
 
         super().__init__(abs_path, *args, **kwargs)
         self.parent_path = parent_path
-    
+
 
 class TuflowField():
     
     def __init__(self):
-        pass
+        self._value = ''
     
     def __repr__(self):
         return 'Not set'
+    
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, value):
+        self._value = value
 
     
 class CommandField(TuflowField):
     
     def __init__(self, command, *args, **kwargs):
         super().__init__()
-        self.value = command
+        self._value = command
         self.params = kwargs.get('params', [])
 
     def __repr__(self):
         params = ' '.join(str(p) for p in self.params) if self.params else ''
-        return '{} {}'.format(self.value, params)#' '.join(str(p) for p in self.params))
+        return '{} {}'.format(self.value, params)
+    
         
-
-class FileField(TuflowField, TuflowPath):
+class FileField(TuflowField):
     
     def __init__(self, original_path, parent_path, *args, **kwargs):
-        TuflowField.__init__(self)
-        TuflowPath.__init__(self, original_path, parent_path, *args, **kwargs)
-        self.value = self.absolute_path
+        super().__init__()
+        # TuflowPath.__init__(self, original_path, parent_path, *args, **kwargs)
+        # self._value = self.absolute_path
         self.original_path = original_path
+        self._data_loader = kwargs.get('data_loader', None)
+        self._required_extensions = kwargs.get('required_extensions', [])
+        self._file = TuflowPath(original_path, parent_path, *args, **kwargs)
+        self._value = original_path
 
     def __repr__(self):
-        # return '{}'.format(self.filename)
-        return self.filename(include_extension=True)
+        return self._file.filename(include_extension=True)
+    
+    @property
+    def file(self):
+        return self._file
+    
+    # TODO: Need to fix how this works to massively improve how path updates happen!
+    #       Basically not implemented at all at the moment in TuflowPath or Path classes.
+    @TuflowField.value.setter
+    def value(self, value):
+        self._value = value
+        self._file = TuflowPath(value, self._file.parent_path)
+
+    @property
+    def required_extensions(self):
+        return self._required_extensions
+    
+    @required_extensions.setter
+    def required_extensions(self, required_extensions):
+        self._required_extensions = required_extensions
         
+    def build_data(self, *args, **kwargs):
+        if self._data_loader is None: 
+            return True
+        else:
+            data_loader = self._data_loader(self.file, *args, **kwargs)
+            success, self.data = data_loader.build_data(*args, **kwargs)
+            return success
+
 
 class VariableField(TuflowField):
     
     def __init__(self, variable, *args, **kwargs):
         super().__init__()
-        self.value = variable.lower()
+        self._value = variable.lower()
 
     def __repr__(self):
         return '{}'.format(self.value)
+    
+    @property
+    def variable(self):
+        return self._value
+    
+    @variable.setter
+    def variable(self, variable):
+        self._value = variable

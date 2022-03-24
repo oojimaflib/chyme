@@ -10,8 +10,32 @@ Tutorial Model == ON								! This command is needed to tell TUFLOW that the tut
 GIS Format == SHP									! Specify SHP as the output format for all GIS files. This is the default setting
 SHP Projection == ..\model\gis\Projection.prj 		! This command sets the GIS projection for the TUFLOW Model
 ! Write Empty GIS Files == ..\model\gis\empty | SHP	! This command is commented out for this run as it is no longer needed
-Set TIMESTEP_1D == 0.75
-Set TIMESTEP_2D == 1.5
+Model Scenarios == BAS | 2m
+If Scenario == 10m
+	If Scenario == DEV
+		Set TIMESTEP_1D == 2.5
+		Set TIMESTEP_2D == 5.0
+		Set CELL_SIZE == 10
+	Else
+		Set TIMESTEP_1D == 3.0
+		Set TIMESTEP_2D == 6.0
+		Set CELL_SIZE == 12
+	End If
+Else If Scenario == 2m
+	Set TIMESTEP_1D == 0.5
+	Set TIMESTEP_2D == 1.0
+	Set CELL_SIZE == 2
+Else
+	If Scenario == DEV
+		Set TIMESTEP_1D == 0.75
+		Set TIMESTEP_2D == 1.5
+		Set CELL_SIZE == 5
+	Else
+		Set TIMESTEP_1D == 0.25
+		Set TIMESTEP_2D == 0.5
+		Set CELL_SIZE == 1
+	End If
+End If	
 
 Start 1D Domain
 	!_________________________________________________________________________________________________________________
@@ -22,7 +46,11 @@ Start 1D Domain
 	! OUTPUT CONTROL AND FORMAT COMMANDS
 	Output Folder == ..\results\1d								! Specifies the location of the 1D output files
 	Write Check Files == ..\check\1d\							! Specifies the location of the 1D check files and prefixes them with the .tcf filename
-	Output Interval (s) == 180									! Writes the 1D output every 3 minutes. Note the (s) is required to indicate the value is in seconds
+	If Scenario == BAS | Block
+		Output Interval (s) == 180									! Writes the 1D output every 3 minutes. Note the (s) is required to indicate the value is in seconds
+	Else
+		Output Interval (s) == 210									! Writes the 1D output every 3 minutes. Note the (s) is required to indicate the value is in seconds
+	End If
 
 	!_________________________________________________________________________________________________________________
 	! 1D NETWORK AND TABLE LINKS
@@ -58,8 +86,13 @@ Set IWL == 36.5	! Define an initial 2D water level of 36.5m
 !__________________________________________________________________________________________________________
 ! SIMULATION TIME CONTROL COMMANDS
 Timestep == <<TIMESTEP_2D>>  ! Specifies a 2D computational timestep of 1.5 seconds
-Start Time == 0  ! Specifies a simulation start time of 0 hours
-End Time == 3    ! Specifies a simulation end time of 3 hours
+!Start Time == 0  ! Specifies a simulation start time of 0 hours
+!End Time == 3    ! Specifies a simulation end time of 3 hours
+If Scenario == BAS
+	Read File == SubTcf_1.tcf
+Else
+	Read File == SubTcf_2.tcf
+End If
 
 !__________________________________________________________________________________________________________
 ! OUTPUT CONTROL AND FORMAT COMMANDS

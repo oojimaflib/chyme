@@ -1,0 +1,2 @@
+Start Time == 0  ! Specifies a simulation start time of 0 hours
+End Time == 3    ! Specifies a simulation end time of 3 hours

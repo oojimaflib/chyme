@@ -13,10 +13,22 @@ import os
 class ChymePath():
     
     def __init__(self, abs_path, *args, **kwargs):
-        self.absolute_path = abs_path
+        self._absolute_path = abs_path
         
         # Handle kwargs here
         
+    def __bool__(self):
+        return os.path.exists(self.absolute_path)
+    
+    @property
+    def absolute_path(self):
+        return self._absolute_path
+    
+    @property
+    def file_exists(self):
+        return os.path.exists(self.absolute_path)
+        
+    @property
     def extension(self):
         """Return the file extension of this path.
         

@@ -19,3 +19,9 @@ class EstryNetwork(network.Network):
     
     def __init__(self, contents):
         super().__init__()
+        
+        
+class EstryReachSection(network.ReachSection):
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(self, *args, **kwargs)
