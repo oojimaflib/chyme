@@ -54,9 +54,10 @@ Start 1D Domain
 
 	!_________________________________________________________________________________________________________________
 	! 1D NETWORK AND TABLE LINKS
-	Read GIS Network == ..\model\gis\1d_nwk_M04_culverts_001_L.shp		! Reads the 1d_nwk GIS layer defining culverts within the model 
-	! Read GIS Network == ..\model\gis\1d_nwk_M02_culverts_001_P.shp	! This GIS layer is commented out / removed from the model as the automated SX boundary links are no longer required
-	Read GIS Network == ..\model\gis\1d_nwk_M04_channels_001_L.shp		! Reads the 1d_nwk GIS layer defining open channels within the model
+	!Read GIS Network == ..\model\gis\1d_nwk_M04_culverts_001_L.shp		! Reads the 1d_nwk GIS layer defining culverts within the model 
+	Read GIS Network == ..\model\gis\1d_nwk_M04_culverts_001b_L.shp		! Reads the 1d_nwk GIS layer defining culverts within the model 
+	! Read GIS Network == ..\model\gis\1d_nwk_M04_channels_001_L.shp		! Reads the 1d_nwk GIS layer defining open channels within the model
+	Read GIS Network == ..\model\gis\1d_nwk_M04_channels_001b_L.shp		! Reads the 1d_nwk GIS layer defining open channels within the model
 	Read GIS Table Links == ..\model\xs\1d_xs_M04_creek_001_L.shp		! GIS layer that references cross-sectional data stored in separate csv files
 
 	!_________________________________________________________________________________________________________________
