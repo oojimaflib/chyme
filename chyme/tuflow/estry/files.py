@@ -163,6 +163,10 @@ class EstryCrossSection(EstryComponent):
             if self.column_order['y'] > 2 and self.column_3_label is None:
                 self.column_order['rmn_or_a'] = self.column_order['y'] + 1
             return valid
+        
+        # 
+        # End Metadata class
+        #
             
     def __init__(self, parent_path):
         EstryComponent.__init__(self)

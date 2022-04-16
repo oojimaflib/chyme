@@ -18,6 +18,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 import os
+import uuid
 
 from chyme.tuflow import GDAL_AVAILABLE, OGR_DRIVERS
 from chyme.tuflow.estry import files as estry_files
@@ -26,8 +27,8 @@ from chyme.tuflow.estry import files as estry_files
 # Could be a fallback option when GDAL not available?
 # from dbfread import DBF
 if GDAL_AVAILABLE: # Setting import status is handled in tuflow.__init__
-    from osgeo import gdal
-    from osgeo import ogr
+    from osgeo import gdal, ogr, osr
+
 # try:
 #     from osgeo import gdal
 #     from osgeo import ogr
@@ -50,6 +51,7 @@ class GisData():
         self.attribute_lookup = {}
         self.field_data = []
         self.associated_data = {}
+        self.crs = None
         
     def add_attributes(self, attributes):
         for i, a in enumerate(attributes):
@@ -84,6 +86,7 @@ class GisDataFactory():
         if data is not None:
             success = True
             lyr = data.GetLayer()
+            gis_data.crs = lyr.GetSpatialRef().ExportToWkt()
             gis_data.add_attributes([field.name for field in lyr.schema]) 
             new_associated_data = self.add_associated_gis_data()
             
@@ -106,6 +109,10 @@ class GisDataFactory():
         return None
     
     def process_fields(self, field_data, gis_data):
+        # Assume ID is always the first index of the list.
+        # Not always true, but safer than using the field name which can be anything
+        # if field_data[0] is None or not field_data[0].strip():
+        #     gis_data.field_data[-1][0] = '{}'.format(uuid.uuid4())
         return gis_data
         
 
@@ -113,6 +120,15 @@ class TuflowGisNetworkDataFactory(GisDataFactory):
     
     def __init__(self, files, file_variables, *args, **kwargs):
         super().__init__(files, file_variables, *args, **kwargs)
+
+    # def process_fields(self, field_data, gis_data):
+    #     gis_data = super().process_fields(field_data, gis_data)
+    #     if field_data[0] is None or not field_data[0].strip():
+    #         if field_data[1].lower() == 'x':
+    #             gis_data.field_data[-1][0] = 'X_{}'.format(uuid.uuid4())
+    #         else:
+    #             gis_data = super().process_fields(field_data, gis_data)
+    #     return gis_data
         
     # def build_data(self, *args, **kwargs):
     #     """
