@@ -1,6 +1,11 @@
 """
  Summary:
     Contains overloads of the base API classes relevant to TUFLOW domains.
+    Main TUFLOW loader classes. 
+    
+    Handle reading and processing TUFLOW configuration files and the associated data.
+    Once the data has been read in, validated, and sanitized it will provide the main
+    model objects to the caller. 
 
  Author:
     Duncan Runnacles
@@ -10,26 +15,14 @@
     
 """
 import logging
-from chyme.tuflow.io import TuflowControlPartIO
 logger = logging.getLogger(__name__)
 
-from collections import deque
 import hashlib
 import os
 
-from chyme import core, d1, d2
 from chyme.utils import utils
-from chyme.tuflow.files import TuflowLogic
-from . import files
-from . import network as tuflow_network
+from . import components, parts
 from .estry import network as estry_network
-
-
-class Domain(d2.Domain):
-    
-    def __init__(self, contents):
-        net = tuflow_network.TuflowNetwork(contents)
-        super().__init__(net)
 
 
 class TuflowLoader():
@@ -52,26 +45,38 @@ class TuflowLoader():
     def __init__(self, filepath, se_vals=''):
         self.input_path = os.path.normpath(filepath)
         self.root_dir = os.path.dirname(filepath)
-        self.se_vals = files.SEStore.from_string(se_vals)
+        self.se_vals = components.SEStore.from_string(se_vals)
         self.variables = None
         self.raw_files = [[], [], []] # See RAW_FILE_ORDER
         self.components = {
-            'control': files.TuflowControlComponent(),
-            'geometry': files.TuflowGeometryComponent(),
-            'boundary': files.TuflowBoundaryComponent(),
+            'control_1d': components.TuflowControlComponent1D(),
+            'control_2d': components.TuflowControlComponent2D(),
+            'geometry': components.TuflowGeometryComponent(),
+            'boundary': components.TuflowBoundaryComponent(),
         }
         self.logic = None
         self.controlfile_read_errors = []
         
     def load(self):
+        from . import loadlog
+        tulog = loadlog.load_log
+        tulog.starting()
+        tulog.progress = 0
+        tulog.add_message('Were loading a model!', loadlog.INFO)
+        
         logger.info('Loading TUFLOW model...')
         self.read()
+        tulog.progress = 30
         self.create_components()
+        tulog.progress = 60
         self.check_logic()
         se_and_variables = self.resolve_variables()
+        tulog.progress = 90
         self.validate(se_and_variables)
-        self.load_subdata()
+        # self.load_subdata()
+        tulog.progress = 100
         logger.info('TUFLOW model load complete')
+        tulog.add_message('Were finishing loading a model!', loadlog.INFO)
         return se_and_variables # DEBUG remove this
     
     def build_estry_reaches(self):
@@ -81,14 +86,18 @@ class TuflowLoader():
         """
         nwks = []
         sections = []
-        for part in self.components['control'].parts_1d:
+        boundaries = []
+        for part in self.components['control_1d'].parts:
             if part.command.value == 'read gis network':
                 nwks.append(part)
             if part.command.value == 'read gis table links':
                 sections.append(part)
+            if part.command.value == 'read gis bc':
+                boundaries.append(part)
                 
         temp_network = estry_network.EstryNetwork()
-        temp_network.setup(nwks, sections)
+        temp_network.setup(nwks, sections, boundaries)
+        return temp_network
         
     def read(self):
         """Read in the TUFLOW model contents.
@@ -109,17 +118,28 @@ class TuflowLoader():
         later commands will have precedence over previous ones. The TuflowRawFile lists
         are in order already from traversing during the file read.
         """
-        lookup_order = [('tcf', 'control'), ('ecf', 'control'), ('tgc', 'geometry'), ('tbc', 'boundary')]
+        lookup_order = [('tcf', 'control_2d'), ('ecf', 'control_1d'), ('tgc', 'geometry'), ('tbc', 'boundary')]
         lookup = dict(lookup_order)
-        part_factory = files.TuflowPartFactory()
+        part_factory = parts.TuflowPartFactory()
         logic_types = []
 
 
         def build_components(data_type):
             nonlocal logic_types
             nonlocal lookup
+            is_1d_domain = False
 
             for data in self.raw_files[data_type]:
+                
+                # Make sure that 1D commands go in the right place
+                low_line = data.line.lower().strip()
+                domain_check = ''
+                if '1d' in low_line and 'domain' in low_line:
+                    domain_check = utils.remove_multiple_whitespace(low_line)
+                    if domain_check == 'start 1d domain':
+                        is_1d_domain = True
+                    if domain_check == 'end 1d domain':
+                        is_1d_domain = False
                     
                 if 'if scenario' in data.line.lower():
                     logic_types.append('scenario')
@@ -130,6 +150,7 @@ class TuflowLoader():
                     
                 # Get the file information data associated with the file containing this command
                 metadata = data.file_info.metadata()
+                if is_1d_domain and not domain_check == 'start 1d domain': metadata['tuflow_type'] = 'ecf'
 
                 # Get the currently active logic type (scenario or event)
                 cur_logic = logic_types[-1] if len(logic_types) > 0 else None
@@ -137,7 +158,7 @@ class TuflowLoader():
                 # Create a new part based on the line contents, metadata and active logic
                 part = part_factory.create_part(
                     data.line, metadata['filepath'], metadata['tuflow_type'], metadata['line_num'], 
-                    logic_type=cur_logic,
+                    logic_type=cur_logic
                 )
                 # If the line is unrecognised for some reason it will be skipped, otherwise 
                 # TuflowFilePartIO object is created and added to the list of components
@@ -165,7 +186,7 @@ class TuflowLoader():
         the correct variables are being used and that necessary files validate.
         """
         # TuflowLogic object for tracking logic and checking if parts are active or not
-        logic = TuflowLogic(self.se_vals.stripped_scenarios, self.se_vals.stripped_events)
+        logic = components.TuflowLogic(self.se_vals.stripped_scenarios, self.se_vals.stripped_events)
         
         def update_part_active_status(parts, logic):
             """Set the active flag for parts based on the logic status."""
@@ -177,10 +198,10 @@ class TuflowLoader():
                         active = True
                         parts[i].active = active
                         
-        # Special cased because there can be multiple 'named' 2D domains
-        [update_part_active_status(domain, logic) for k, domain in self.components['control'].parts_2d.items()]
+        # Special case because there can be multiple 'named' 2D domains
+        [update_part_active_status(domain, logic) for domain in self.components['control_2d'].parts.values()]
         # All the others work roughly the same way
-        update_part_active_status(self.components['control'].parts_1d, logic)
+        update_part_active_status(self.components['control_1d'].parts, logic)
         update_part_active_status(self.components['geometry'].parts, logic)
         update_part_active_status(self.components['boundary'].parts, logic)
         
@@ -198,13 +219,14 @@ class TuflowLoader():
         """
         # Check if we need to setup any default variables first
         if not self.se_vals.has_scenarios:
-            if self.components['control'].default_scenarios:
+            if self.components['control_2d'].default_scenarios:
                 self.se_vals.scenarios_from_list(
-                    self.components['control'].default_scenarios
+                    self.components['control_2d'].default_scenarios
                 )
 
         # Now resolve some variables
-        self.variables = self.components['control'].get_custom_variables(self.se_vals)
+        self.variables = self.components['control_1d'].get_custom_variables(self.se_vals)
+        self.variables.update(self.components['control_2d'].get_custom_variables(self.se_vals))
         logger.debug('SE Vals: {}'.format(self.se_vals))
         logger.debug('Variables: {}'.format(self.variables))
         se_and_variables = {
@@ -235,15 +257,15 @@ class TuflowLoader():
                 valid = False
         logger.info('Validation Passed == {}'.format(valid))
         
-    def load_subdata(self):
-        """
-        """
-        valid = True
-        for k, v in self.components.items():
-            if not v.build_data():
-                logger.warning('Failed to load subdata for {}-{}'.format(k, v))
-                valid = False
-        logger.info('Validation Passed == {}'.format(valid))
+    # def load_subdata(self):
+    #     """
+    #     """
+    #     # valid = True
+    #     for k, v in self.components.items():
+    #         if not v.build_data():
+    #             logger.warning('Failed to load subdata for {} file'.format(k.upper()))
+                # valid = False
+        # logger.info('Validation Passed == {}'.format(valid))
 
         
         
@@ -272,7 +294,7 @@ class TuflowLoader():
             input_path (str): the path of the file to load.
     
         """
-        raw_file_info = files.TuflowRawFile(input_path)
+        raw_file_info = TuflowRawFile(input_path)
         with open(raw_file_info.filepath, 'rb', buffering=0) as infile:
             data = bytearray(infile.readall())
         data.replace(b'#', b'!')
@@ -310,9 +332,9 @@ class TuflowLoader():
                     abs_path = os.path.normpath(abs_path)
                     
                     # Create a new TuflowRawFile to hold the file information
-                    new_raw_file_info = files.TuflowRawFile(
+                    new_raw_file_info = TuflowRawFile(
                         abs_path, parent_path=raw_file_info.parent_path, parent_type=raw_file_info.parent_type, 
-                        command=command, command_line=line, line_num=line_num
+                        command=command, command_line=line
                     )
                     # read the contents of the file (recursive bit)
                     self._read_file(new_raw_file_info.filepath)
@@ -321,7 +343,7 @@ class TuflowLoader():
                     # Add the line to the end of the list for this tuflow type (tcf, tgc, etc)
                     # The line is stored alongside the raw_file_info in a TuflowRawFileLine object.
                     self.raw_files[TuflowLoader.RAW_FILE_ORDER[raw_file_info.tuflow_type]].append(
-                        files.TuflowRawFileLine(line, raw_file_info)
+                        TuflowRawFileLine(line, raw_file_info)
                     )
 
             # Handle the special case of the ESTRY Auto command which denotes that there is an ESTRY
@@ -332,17 +354,118 @@ class TuflowLoader():
                 if fixed_line.startswith(command):
                     fpath = os.path.splitext(raw_file_info.filepath)[0]
                     abs_path = fpath + '.ecf'
-                    new_raw_file_info = files.TuflowRawFile(
+                    new_raw_file_info = TuflowRawFile(
                         abs_path, parent_path=raw_file_info.parent_path, parent_type=raw_file_info.parent_type, 
-                        command=command, command_line=line, line_num=line_num
+                        command=command, command_line=line
                     )
                     self._read_file(new_raw_file_info.filepath)
                 else:
                     self.raw_files[TuflowLoader.RAW_FILE_ORDER[raw_file_info.tuflow_type]].append(
-                        files.TuflowRawFileLine(line, raw_file_info)
+                        TuflowRawFileLine(line, raw_file_info)
                     )
 
             else:
                 self.raw_files[TuflowLoader.RAW_FILE_ORDER[raw_file_info.tuflow_type]].append(
-                    files.TuflowRawFileLine(line, raw_file_info)
+                    TuflowRawFileLine(line, raw_file_info)
                 )
+
+class TuflowRawFile():
+    CONTROL_COMMANDS = {
+        'geometry control file': 'tgc',
+        'bc control file': 'tbc',
+        'estry control file': 'ecf',
+        'estry control file auto': 'ecf',
+        'bc database': 'bcdbase',
+    }
+    
+    def __init__(
+            self, filepath, parent_path='', parent_type='', command_line='', command='', 
+        ):
+        """Setup the raw contents of the file.
+        
+        There's a few things to do here::
+        
+            - Sort out all of the filepaths so we have names and locations.
+            - Work out what kind of control file we're dealing with.
+            - Hash the original file line so we can reference it later.
+            
+        All of the args should usually be called, but the root file (probably the tcf) is
+        a special case - it isn't called from another file - so they don't apply.
+            
+        Args:
+            filepath (str): the absolute path to the file.
+            parent_path='' (str): the absolute path to the file containing the command.
+            parent_type='' (str): the control file type containing the command.
+            command_line='' (str): the original line in the file when read.
+            command='' (str): the control file calling command.
+        """
+        self._valid_path = False
+        self.filepath = filepath
+        self.parent_path = parent_path
+        self.command_line = command_line
+        self.line_num = 1
+        self.line_num_incrementor = 0
+
+        self.root_dir, filename = os.path.split(self.filepath)
+        self.filename, self.extension = os.path.splitext(filename)
+        self.extension = self.extension[1:]
+
+        if not parent_type:
+            self.parent_type = self.extension
+        else:
+            self.parent_type = parent_type
+
+        if not command:
+            self.tuflow_type = self.extension
+        # Tuflow Read File (trd) is always the calling file type (I think?)
+        elif command == 'read file':
+            self.tuflow_type = self.parent_type
+        else:
+            self.tuflow_type = TuflowRawFile.CONTROL_COMMANDS[command]
+        
+        # If the path was read from a file, create the hash based on the path and
+        # the original command line that it was read from. Otherwise just use the 
+        # path (root file).
+        if command_line:
+            self.hash = hashlib.md5('{}{}{}'.format(
+                parent_path, command_line, self.line_num).encode('utf-8')
+            ).hexdigest()
+        else:
+            self.hash = hashlib.md5('{}'.format(filepath).encode('utf-8')).hexdigest()
+
+    @property
+    def valid_path(self):
+        """Test whether the filepath exists/is accessible or not.
+        
+        Return:
+            bool - True if path exists, False if not
+        """
+        if os.path.exists(self.filepath):
+            self._valid_path = True
+        else:
+            self._valid_path = False
+        return self._valid_path
+    
+    def line_hash(self, raw_line):
+        self.line_num_incrementor += 1
+        return self.line_num_incrementor, hashlib.md5('{}{}{}'.format(
+            self.filepath, raw_line, self.line_num_incrementor).encode('utf-8')
+        ).hexdigest()
+        
+    def metadata(self):
+        """Fetch all the metadata (setup variables) as a dict.
+        
+        Return:
+            dict - containing the metadata for the class.
+        """
+        all_members = self.__dict__.keys()
+        return {item: self.__dict__[item] for item in all_members if not item.startswith("_") and not item == 'data'}
+    
+class TuflowRawFileLine():
+    
+    def __init__(self, line, file_info):
+        self.line = line
+        self.file_info = file_info
+        self.line_number, self.hash = file_info.line_hash(line)
+        
+        

@@ -25,7 +25,9 @@ from tests import CHYME_DIR, TESTS_DIR, DATA_DIR
 SANDBOX FUNCTIONS
 """
 
-from chyme.tuflow import core as tuflow_core
+from chyme.tuflow.loader import loader as tuflow_core
+from chyme.api.model import Filter
+from chyme.api.estrymodel import EstryModel
 
 # LOG_LEVEL = logging.WARNING
 LOG_LEVEL = logging.DEBUG
@@ -92,10 +94,15 @@ def estry_channels():
     se_vals = 's NON s1   DEV s2 10m s3 Block e1   Q0100 e2 6hr'
     loader = tuflow_core.TuflowLoader(filepath, se_vals=se_vals)
     loader.load()
-    loader.build_estry_reaches()
+    network = loader.build_estry_reaches()
+    # filter = Filter(file_and=['ds5', 'csv'])
+    filter = Filter(f_or=['ds'], f_not=['3', '2', 'weir'])
+    estry_model = EstryModel(network, filter=filter)
+    # xs = estry_model.cross_sections(name_filter='ds5')
+    xs = estry_model.cross_sections()
     
     i=0
 
 if __name__ == '__main__':
-    # tuflow_logic_test()
-    estry_channels()
+    tuflow_logic_test()
+    # estry_channels()

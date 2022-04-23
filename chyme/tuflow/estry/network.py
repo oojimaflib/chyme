@@ -10,7 +10,6 @@
 """
 import uuid
 
-from .. import files
 from chyme import network
 
 from chyme.tuflow import GDAL_AVAILABLE, OGR_DRIVERS
@@ -412,15 +411,19 @@ class EstryNetwork():
         self.raw_sections = []
         self.snapping_dist = DEFAULT_SNAPPING_DIST
         
-    def setup(self, nwks, sections, snapping_dist=DEFAULT_SNAPPING_DIST):
+    def setup(self, nwks, sections, boundaries, snapping_dist=DEFAULT_SNAPPING_DIST):
         if not GDAL_AVAILABLE:
             raise ImportError('Unable to use GDAL to load data. Is it installed?')
         self.raw_nwks = nwks
         self.raw_sections = sections
+        self.raw_boundaries = boundaries
         self.snapping_dist = snapping_dist
         
         self.build_network()
         i=0
+        del self.raw_nwks
+        del self.raw_sections
+        del self.node_lookup
         # Load the nwk data
         # self._build_channels()
         

@@ -12,12 +12,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 import os
-import re
 
-from chyme.utils import path as utilspath
+from chyme.utils import path as chymepath
 
 
-class TuflowPath(utilspath.ChymePath):
+class TuflowPath(chymepath.ChymePath):
     
     def __init__(self, original_path, parent_path, *args, **kwargs):
         
@@ -69,13 +68,12 @@ class FileField(TuflowField):
     
     def __init__(self, original_path, parent_path, *args, **kwargs):
         super().__init__()
-        # TuflowPath.__init__(self, original_path, parent_path, *args, **kwargs)
-        # self._value = self.absolute_path
         self.original_path = original_path
         self._data_loader = kwargs.get('data_loader', None)
         self._required_extensions = kwargs.get('required_extensions', [])
         self._file = TuflowPath(original_path, parent_path, *args, **kwargs)
         self._value = original_path
+        self.data = None
 
     def __repr__(self):
         return self._file.filename(include_extension=True)
@@ -101,11 +99,20 @@ class FileField(TuflowField):
         
     def build_data(self, *args, **kwargs):
         if self._data_loader is None: 
+            logger.warning('No data loader associated with: {}'.format(self))
             return True
         else:
             data_loader = self._data_loader(self.file, *args, **kwargs)
-            success, self.data = data_loader.build_data(*args, **kwargs)
-            return success
+            if data_loader.is_lazy:
+                logger.debug('Lazy flag set. Data loading is delayed for: {}'.format(self))
+                return True
+            else:
+                success, self.data = data_loader.build_data(*args, **kwargs)
+                if not success:
+                    logger.warning('Failed to load subdata for: {}'.format(self))
+                else:
+                    logger.info('loaded subdata for: {}'.format(self))
+                return success
 
 
 class VariableField(TuflowField):
