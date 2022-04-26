@@ -1,6 +1,12 @@
 """
  Summary:
-    
+    Multipart value stores for TUFLOW commands.
+    Handle storing multiple inputs for several values (usually separated by the
+    "|" (pipe) command. 
+    Allows the file, variable, whatever field to deal with its own requirements
+    separately without being bound to other inputs in the same line. Essentially
+    just convenience classes for storing data associated with all inputs on the
+    same line and making sure sanity is maintained.
 
  Author:
     Duncan Runnacles

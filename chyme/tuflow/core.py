@@ -72,8 +72,24 @@ class TuflowLoader():
         self.validate(se_and_variables)
         self.load_subdata()
         logger.info('TUFLOW model load complete')
-        return se_and_variables
-
+        return se_and_variables # DEBUG remove this
+    
+    def build_estry_reaches(self):
+        """Construct ESTRY 1D reach data.
+        
+        DEBUG: I don't think this should live here, but it's okay for now.
+        """
+        nwks = []
+        sections = []
+        for part in self.components['control'].parts_1d:
+            if part.command.value == 'read gis network':
+                nwks.append(part)
+            if part.command.value == 'read gis table links':
+                sections.append(part)
+                
+        temp_network = estry_network.EstryNetwork()
+        temp_network.setup(nwks, sections)
+        
     def read(self):
         """Read in the TUFLOW model contents.
         

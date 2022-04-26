@@ -92,6 +92,7 @@ def estry_channels():
     se_vals = 's NON s1   DEV s2 10m s3 Block e1   Q0100 e2 6hr'
     loader = tuflow_core.TuflowLoader(filepath, se_vals=se_vals)
     loader.load()
+    loader.build_estry_reaches()
     
     i=0
 
