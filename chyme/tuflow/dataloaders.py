@@ -18,7 +18,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-from . import loadlog as ll
 from chyme.tuflow import GDAL_AVAILABLE, OGR_DRIVERS
 from chyme.tuflow.estry import files as estry_files
 
@@ -66,7 +65,6 @@ class GisDataFactory():
         return self._data_loaded
         
     def build_data(self, *args, **kwargs):
-        # ll.load_log.add_message('Loading subdata', ll.INFO)
         gis_data = GisData()
         if not GDAL_AVAILABLE: return False
         success = False
@@ -131,7 +129,6 @@ class TuflowTableLinksDataFactory(GisDataFactory):
         reach_section = estry_files.EstryCrossSection(self.file.absolute_path)
         success = reach_section.setup_metadata(field_data)
         if not success:
-            # ll.load_log.add_message('Failed to open csv file', ll.WARNING)
             logger.warning('Failed to open csv file: {}'.format(reach_section.metadata.source))
         else:
             reach_section.load_rowdata()

@@ -25,7 +25,7 @@ from tests import CHYME_DIR, TESTS_DIR, DATA_DIR
 SANDBOX FUNCTIONS
 """
 
-from chyme.tuflow.loader import loader as tuflow_core
+from chyme.tuflow import loader as tuflow_loader
 from chyme.api.model import Filter
 from chyme.api.estrymodel import EstryModel
 
@@ -42,10 +42,10 @@ print('\nLOGGING LEVEL SET TO: {}\n'.format(logging.getLevelName(LOG_LEVEL)))
 # logger.setLevel(level)
 # for handler in logger.handlers:
 #     handler.setLevel(level)
-# logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 def check_variables(filepath, test_vals):
-    loader = tuflow_core.TuflowLoader(filepath, se_vals=test_vals[0])
+    loader = tuflow_loader.TuflowLoader(filepath, se_vals=test_vals[0])
     se_and_variables = loader.load()
     print('SE Vals: {}'.format(loader.se_vals))
     print('Variables:')
@@ -67,7 +67,7 @@ def tuflow_logic_test():
     fpath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D.tcf')
     # fpath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D_WithECF.tcf')
     # fpath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D_WithAutoECF.tcf')
-    # model = tuflow_core.TuflowModel(fpath)
+    # model = tuflow_loader.TuflowModel(fpath)
     # model.read()
     
 
@@ -92,7 +92,7 @@ def tuflow_logic_test():
 def estry_channels():
     filepath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D.tcf')
     se_vals = 's NON s1   DEV s2 10m s3 Block e1   Q0100 e2 6hr'
-    loader = tuflow_core.TuflowLoader(filepath, se_vals=se_vals)
+    loader = tuflow_loader.TuflowLoader(filepath, se_vals=se_vals)
     loader.load()
     network = loader.build_estry_reaches()
     # filter = Filter(file_and=['ds5', 'csv'])
@@ -104,5 +104,33 @@ def estry_channels():
     i=0
 
 if __name__ == '__main__':
-    tuflow_logic_test()
-    # estry_channels()
+    # tuflow_logic_test()
+    import threading
+    # from chyme.tuflow import loadlog
+    from chyme.utils import logsettings
+    
+    class MyListener(logsettings.ChymeProgressListener):
+        
+        def progress(self, percentage, **kwargs):
+            print('Progress = {}%'.format(percentage))
+        
+        def notify(self, msg, **kwargs):
+            print('MyListener: {}'.format(msg))
+    
+    my_listener = MyListener() 
+    logsettings.add_progress_listener(my_listener)
+
+    # Works for multi and single threaded calls
+    # MULTI THREADED
+    # load_thread = threading.Thread(target=estry_channels, name='estry_channels')
+    # load_thread.daemon = True
+    # load_thread.start()
+    # load_thread.join()
+    # SINGLE THREADED
+    estry_channels()
+    
+    error_logs = my_listener.get_logs()
+    q=0
+    
+    
+    

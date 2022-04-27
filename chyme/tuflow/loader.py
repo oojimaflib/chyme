@@ -58,25 +58,16 @@ class TuflowLoader():
         self.controlfile_read_errors = []
         
     def load(self):
-        from . import loadlog
-        tulog = loadlog.load_log
-        tulog.starting()
-        tulog.progress = 0
-        tulog.add_message('Were loading a model!', loadlog.INFO)
-        
-        logger.info('Loading TUFLOW model...')
+        logger.info('Loading TUFLOW model...', extra={'chyme': None})
         self.read()
-        tulog.progress = 30
         self.create_components()
-        tulog.progress = 60
+        logger.info('Checking logic logging stuf', extra={'chyme': {'msg': 'Checking logic'}})
         self.check_logic()
         se_and_variables = self.resolve_variables()
-        tulog.progress = 90
+        logger.warning('Long winded logging output for validation', extra={'chyme': {'msg': 'Validating model', 'progress': 50}})
         self.validate(se_and_variables)
         # self.load_subdata()
-        tulog.progress = 100
-        logger.info('TUFLOW model load complete')
-        tulog.add_message('Were finishing loading a model!', loadlog.INFO)
+        logger.info('TUFLOW model load complete', extra={'chyme': {'progress': 100}})
         return se_and_variables # DEBUG remove this
     
     def build_estry_reaches(self):
