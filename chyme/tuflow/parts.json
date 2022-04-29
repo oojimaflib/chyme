@@ -1,0 +1,148 @@
+{
+	"comment": [
+		"Configuration file for associating TUFLOW commands with the TuflowPartIO,",
+		"TuflowValidator, and TuflowDataLoader classes needed to instantiate them",
+		"",
+		"Note: anything called 'comment' will be ignored, so feel free to use it to",
+		"add any useful information about the contents of this file. It just has to",
+		"contain valid json syntax (or the file won't parse!)"
+	],
+	
+	"tier_1": {
+		"comment": [
+			"This is the top level tier.",
+			"Complete lookups and their associated parts/validators/loaders go here",
+			"You can also set partial commands like 'read gis' and it set a default",
+			"behaviour for all commands of that type. Handling subsets of this command",
+			"(e.g. 'read gis z shape') can be done in 'tier_2'.",
+			"",
+			"Please note that all command strings must be lowercase with a single space",
+			"between each word",
+			"",
+			"You must provide at least a 'class', with optional validators and loaders.",
+			"Parts must inherit from the TuflowPartIO class and be put in the",
+			"chyme.tuflow.parts module, validators in the chyme.tuflow.validators module",
+			"and loaders in the chyme.tuflow.dataloaders module.",
+			""
+		],
+
+
+		"comment": "CONTROL FILES",
+
+		"geometry control file": { 
+			"class": "TuflowControlPartIO", 
+			"validators": ["TuflowPathValidator"]
+		},
+		"bc control file": {
+			"class": "TuflowControlPartIO", 
+			"validators": ["TuflowPathValidator"]
+		},
+		"estry control file": {
+			"class": "TuflowControlPartIO", 
+			"validators": ["TuflowPathValidator"]
+		},
+		"estry control file auto": {
+			"class": "TuflowControlPartIO", 
+			"validators": ["TuflowPathValidator"]
+		},
+		"read file": {
+			"class": "TuflowControlPartIO", 
+			"validators": ["TuflowPathValidator"]
+		},
+
+
+		"comment": "DATA FILES",
+
+		"read materials file": {
+			"class": "TuflowMaterialsPartIO"
+		},
+        "read gis": {
+        	"class": "TuflowGisPartIO", 
+        	"validators": ["TuflowPathValidator"], 
+        	"factory": "GisDataFactory"
+        },
+        
+        
+		"comment": "VARIABLES",
+
+		"set": {
+			"class": "TuflowCustomVariablePartIO"
+		},
+		"timestep": {
+			"class": "TuflowVariablePartIO",
+			"validators": ["TuflowFloatValidator"]
+		},
+		"cell size": {
+			"class": "TuflowVariablePartIO",
+			"validators": ["TuflowIntValidator"]
+		},
+		"model scenarios": {
+			"class": "TuflowVariablePartIO",
+			"validators": ["TuflowStringValidator"]
+		},
+		"output": {},
+		
+		
+		"comment": "DOMAINS",
+		
+		"start": {},
+		"end": {},
+		
+		
+		"comment": "LOGIC",
+		
+		"if": "TuflowLogicPartIO",
+		"else if": "TuflowLogicPartIO",
+		"else": "TuflowLogicPartIO"
+	},
+	
+	"tier_2": {
+		"comment": [
+			"This is the second level tier.",
+			"It will be checked for any more specific implementations when a command",
+			"matching tier_1 is found.",
+			"It works the same as tier_1 except that you need to group everything under",
+			"the matching tier_1 lookup (e.g. 'read_gis' contains all the more detailed",
+			"implementations, such as 'read gis table links'.",
+			"",
+			"If the same validator classes are used for every part in a group, you can",
+			"set 'global validators' and they will be assigned to every part created",
+			"from that group"
+		],
+	
+		"comment": "GIS",
+
+        "read gis": {
+        	"validators": ["TuflowPathValidator"],
+        	"read gis table links": {
+        		"class": "TuflowGisPartIO", 
+				"factory": "TuflowTableLinksDataFactory"
+        	},
+        	"read gis network": {
+        		"class": "TuflowGisPartIO", 
+				"factory": "TuflowGisNetworkDataFactory"
+        	},
+        	"read gis z shape": {},
+        	"read gis z line": {},
+        	"read gis z hx line": {}
+        },
+        
+        
+        "comment": "VARIABLES",
+        
+        "set": {
+        	"set iwl": {
+        		"class": "TuflowVariablePartIO"
+        	},
+        	"set mat": {
+        		"class": "TuflowVariablePartIO"
+        	}
+        },
+		"output": {
+			"output interval (s)": {
+				"class": "TuflowVariablePartIO",
+				"validators": ["TuflowIntValidator"]
+			}
+		}
+    }
+}

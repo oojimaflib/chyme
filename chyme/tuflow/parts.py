@@ -12,6 +12,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 import hashlib
+import importlib
+import json
 import os
 import re
 
@@ -26,72 +28,132 @@ class TuflowPartFactory():
     lookup, builds the parts - providing any required data loaders and validators -
     and returns the constructed part to be added to the TuflowComponent.
     """
+
+    # Module locations for the different classes used to build TuflowPartIO objects
+    PARTS_MODULE = 'chyme.tuflow.parts'
+    LOADERS_MODULE = 'chyme.tuflow.dataloaders'
+    VALIDATORS_MODULE = 'chyme.tuflow.validators'
     
     def __init__(self):
-        self.tier_1 = [
-            # Control File
-            ['geometry control file', TuflowControlPartIO, {'validators': [validators.TuflowPathValidator]}],
-            ['bc control file', TuflowControlPartIO, {'validators': [validators.TuflowPathValidator]}],
-            ['estry control file', TuflowControlPartIO, {'validators': [validators.TuflowPathValidator]}],
-            ['estry control file auto', TuflowControlPartIO, {'validators': [validators.TuflowPathValidator]}],
-            ['read file', TuflowControlPartIO, {'validators': [validators.TuflowPathValidator]}],
-            
-            # Data files
-            ['read materials file', TuflowMaterialsPartIO],
-            ['read gis', TuflowGisPartIO, {'validators': [validators.TuflowPathValidator], 'factory': dataloaders.GisDataFactory}],
-            
-            # Variables
-            ['set', TuflowCustomVariablePartIO],
-            ['timestep', TuflowVariablePartIO, {'validators': [validators.TuflowFloatValidator]}],
-            ['cell size', TuflowVariablePartIO, {'validators': [validators.TuflowIntValidator]}],
-            ['model scenarios', TuflowVariablePartIO, {'validators': [validators.TuflowStringValidator]}],
-            ['output', None],
-            
-            # Domains
-            ['start', None], 
-            ['end', None],
-            
-            # Logic - "End If" in tier_2
-            ['if', TuflowLogicPartIO],
-            ['else if', TuflowLogicPartIO],
-            ['else', TuflowLogicPartIO],
-        ]
-        self.tier_2 = {
-            'start': [
-                ['start 1d domain', TuflowDomainPartIO],
-                ['start 2d domain', TuflowDomainPartIO],
-                ['start time', TuflowVariablePartIO],
-            ],
-            'end': [
-                ['end 1d domain', TuflowDomainPartIO],
-                ['end 2d domain', TuflowDomainPartIO],
-                ['end if', TuflowLogicPartIO],
-                ['end time', TuflowVariablePartIO],
-            ],
-            
-            # GIS
-            'read gis': [
-                ['read gis table links', TuflowGisPartIO, {'validators': [validators.TuflowPathValidator], 'factory': dataloaders.TuflowTableLinksDataFactory}],
-                ['read gis network', TuflowGisPartIO, {'validators': [validators.TuflowPathValidator], 'factory': dataloaders.TuflowGisNetworkDataFactory}],
-                ['read gis bc', TuflowGisPartIO, {'validators': [validators.TuflowPathValidator], 'factory': dataloaders.GisDataFactory}],
-                ['read gis z shape',  None],
-                ['read gis z line',  None],
-                ['read gis z hx line',  None],
-            ],
-            
-            # VARIABLES
-            'set': [
-                ['set iwl', TuflowVariablePartIO],
-                ['set mat', TuflowVariablePartIO],
-            ],
-            'output': [
-                ['output interval (s)', TuflowVariablePartIO, {'validators': [validators.TuflowIntValidator]}],
-            ],
-        }
-        # tier_3 needed here, I think. For "read gis z..." and suchlike
-        self.tier_2_keys = self.tier_2.keys()
+        self.tier_1 = []
+        self.tier_2 = {}
+        self.tier_2_keys = []
         
-    def fetch_part_type(self, command):
+    def create_part(self, line, parent_path, component_type, line_num, *args, **kwargs):
+        """Build a TuflowPartIO object based on the the contents of the command line.
+        
+        """
+        parent_path = parent_path
+        component_type = component_type
+        line_hash = hashlib.md5('{}{}{}'.format(
+            parent_path, line, line_num).encode('utf-8')
+        ).hexdigest()
+        
+        line = tuflow_utils.remove_comment(line)
+        command, variable = tuflow_utils.split_line(line)
+        part_type = self._fetch_part_type(command)
+        if part_type:
+            if len(part_type) > 1:
+                kwargs = dict(kwargs, **part_type[1])
+            part_type = part_type[0]
+                
+            part_type = part_type(
+                command, variable, line, parent_path, component_type, line_hash,
+                *args, **kwargs
+            )
+            part_type.build(*args, **kwargs)
+            return part_type
+        else:
+            return False
+        
+    def load_parts(self):
+        """Load the part configuration from the parts.json file.
+        
+        The setup for handling specific TUFLOW commands is placed in a configuration file
+        in the tuflow module (parts.json). This needs to be read in and the converted to
+        a format usable here. The class names used in the json file are converted to 
+        Python classes using getattr and importlib.
+        
+        Note that classes referenced in the json file must exist in specific modules.
+        Namely, tuflow.parts, tuflow.validators, and tuflow.dataloaders.
+        
+        Anything called 'comment' in the json file will be ignored.
+        
+        TODO:: 
+            I don't like the way this is structured at the moment (the whole PartFactory
+            not just this method). It's quite confusing and hard to follow. Should make
+            better use of dictionaries and see if the approach can be improved a little
+            to make it easier to read and maintain.
+        """
+        parts_path = os.path.join(os.path.dirname(__file__), 'parts.json')
+        json_parts = None
+        with open(parts_path, 'r') as infile:
+            json_parts = json.load(infile)
+        tier_1 = json_parts['tier_1']
+        tier_2 = json_parts['tier_2']
+
+        for k, v in tier_1.items():
+            if k == 'comment': continue
+
+            # Empty contents so set it to None (we'll check tier_2 for an implementation)
+            if not v or 'class' not in v:
+                self.tier_1.append([k, None])
+                continue
+
+            # Build the TuflowPartIO class from the name
+            # TODO: no error handling here at the moment
+            part_class = getattr(importlib.import_module(self.PARTS_MODULE), v['class'])
+            self.tier_1.append([
+                k, part_class, {}
+            ])
+
+            # Build the validator and data loader classes, if there are any
+            if 'validators' in v:
+                validator_classes = [getattr(importlib.import_module(self.VALIDATORS_MODULE), c) for c in v['validators']]
+                self.tier_1[-1][-1]['validators'] = validator_classes
+            if 'factory' in v:
+                factory_class = getattr(importlib.import_module(self.LOADERS_MODULE), v['factory'])
+                self.tier_1[-1][-1]['factory'] = factory_class
+
+        # Go through the same process for tier_2
+        for k, v in tier_2.items():
+            if k == 'comment': continue
+
+            self.tier_2[k] = []
+            global_validators = []
+            for k2, v2 in tier_2[k].items():
+                
+                # Set validators to use for all entries in this group
+                if k2 == 'validators':
+                    global_validators = [getattr(importlib.import_module(self.VALIDATORS_MODULE), c) for c in v2]
+                    continue
+                    
+                # Empty contents. We'll fall back to the implementation in tier_1
+                elif not v2:
+                    self.tier_2[k].append([k2, None])
+                    continue
+
+                part_class = getattr(importlib.import_module(self.PARTS_MODULE), v2['class'])
+                self.tier_2[k].append([
+                    k2, part_class, {}
+                ])
+                if 'validators' in v2:
+                    validator_classes = [getattr(importlib.import_module(self.VALIDATORS_MODULE), c) for c in v2['validators']]
+                    # Add the global validators on
+                    if global_validators:
+                        validator_classes += [v for v in global_validators if not v in validator_classes]
+                    self.tier_2[k][-1][-1]['validators'] = validator_classes
+                elif global_validators:
+                    self.tier_2[k][-1][-1]['validators'] = global_validators
+
+                if 'factory' in v2:
+                    factory_class = getattr(importlib.import_module(self.LOADERS_MODULE), v2['factory'])
+                    self.tier_2[k][-1][-1]['factory'] = factory_class
+
+        self.tier_2_keys = self.tier_2.keys()
+        q=0
+        
+    def _fetch_part_type(self, command):
         """Get the TuflowPartIO associated with the given command.
         
         Args:
@@ -136,31 +198,6 @@ class TuflowPartFactory():
                 else:
                     part = False
         return part
-
-        
-    def create_part(self, line, parent_path, component_type, line_num, *args, **kwargs):
-        parent_path = parent_path
-        component_type = component_type
-        line_hash = hashlib.md5('{}{}{}'.format(
-            parent_path, line, line_num).encode('utf-8')
-        ).hexdigest()
-        
-        line = tuflow_utils.remove_comment(line)
-        command, variable = tuflow_utils.split_line(line)
-        part_type = self.fetch_part_type(command)
-        if part_type:
-            if len(part_type) > 1:
-                kwargs = dict(kwargs, **part_type[1])
-            part_type = part_type[0]
-                
-            part_type = part_type(
-                command, variable, line, parent_path, component_type, line_hash,
-                *args, **kwargs
-            )
-            part_type.build(*args, **kwargs)
-            return part_type
-        else:
-            return False
         
 
 class TuflowPartFiles():

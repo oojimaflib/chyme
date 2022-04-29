@@ -112,6 +112,7 @@ class TuflowLoader():
         lookup_order = [('tcf', 'control_2d'), ('ecf', 'control_1d'), ('tgc', 'geometry'), ('tbc', 'boundary')]
         lookup = dict(lookup_order)
         part_factory = parts.TuflowPartFactory()
+        part_factory.load_parts()
         logic_types = []
 
 
