@@ -12,7 +12,7 @@
 		"comment": [
 			"This is the top level tier.",
 			"Complete lookups and their associated parts/validators/loaders go here",
-			"You can also set partial commands like 'read gis' and it set a default",
+			"You can also set partial commands like 'read gis' and it will set a default",
 			"behaviour for all commands of that type. Handling subsets of this command",
 			"(e.g. 'read gis z shape') can be done in 'tier_2'.",
 			"",
@@ -22,8 +22,18 @@
 			"You must provide at least a 'class', with optional validators and loaders.",
 			"Parts must inherit from the TuflowPartIO class and be put in the",
 			"chyme.tuflow.parts module, validators in the chyme.tuflow.validators module",
-			"and loaders in the chyme.tuflow.dataloaders module.",
-			""
+			"and loaders ('factory') in the chyme.tuflow.dataloaders module.",
+			"",
+			"Other arguments available include:",
+			"  'split_char': a character that should be used to split values (default is pipe ('|'))",
+			"  'case_sensitive': if 'true' the value will keep its case (default is 'false')",
+			"",
+			"Validators is a list of of dictionaries containing:",
+			"  'class': TuflowValidator class name",
+			"  'kwargs': a dict of key word arguments to give the class constructor",
+			"Valid kwargs are dependent on the validator class, but include:",
+			"  'options': for TuflowConstantValidator - the valid constant values"
+
 		],
 
 
@@ -31,23 +41,23 @@
 
 		"geometry control file": { 
 			"class": "TuflowControlPartIO", 
-			"validators": ["TuflowPathValidator"]
+			"validators": [{"class": "TuflowPathValidator"}]
 		},
 		"bc control file": {
 			"class": "TuflowControlPartIO", 
-			"validators": ["TuflowPathValidator"]
+			"validators": [{"class": "TuflowPathValidator"}]
 		},
 		"estry control file": {
 			"class": "TuflowControlPartIO", 
-			"validators": ["TuflowPathValidator"]
+			"validators": [{"class": "TuflowPathValidator"}]
 		},
 		"estry control file auto": {
 			"class": "TuflowControlPartIO", 
-			"validators": ["TuflowPathValidator"]
+			"validators": [{"class": "TuflowPathValidator"}]
 		},
 		"read file": {
 			"class": "TuflowControlPartIO", 
-			"validators": ["TuflowPathValidator"]
+			"validators": [{"class": "TuflowPathValidator"}]
 		},
 
 
@@ -58,7 +68,7 @@
 		},
         "read gis": {
         	"class": "TuflowGisPartIO", 
-        	"validators": ["TuflowPathValidator"], 
+        	"validators": [{"class": "TuflowPathValidator"}], 
         	"factory": "GisDataFactory"
         },
         
@@ -70,17 +80,34 @@
 		},
 		"timestep": {
 			"class": "TuflowVariablePartIO",
-			"validators": ["TuflowFloatValidator"]
+			"validators": [{"class": "TuflowFloatValidator"}]
 		},
 		"cell size": {
 			"class": "TuflowVariablePartIO",
-			"validators": ["TuflowIntValidator"]
+			"validators": [{"class": "TuflowFloatValidator"}]
 		},
 		"model scenarios": {
 			"class": "TuflowVariablePartIO",
-			"validators": ["TuflowStringValidator"]
+			"validators": [{"class": "TuflowMultiStringValidator"}]
 		},
 		"output": {},
+		"map output": {},
+		"screen/log display interval": {
+			"class": "TuflowVariablePartIO",
+			"validators": [{"class": "TuflowIntValidator"}]
+		},
+
+		"line cell selection": {
+			"class": "TuflowVariablePartIO",
+			"validators": [
+				{
+					"class": "TuflowConstantValidator",
+					"kwargs": {
+						"options": ["METHOD A", "METHOD B", "METHOD D"]
+					}
+				}
+			]
+		},
 		
 		
 		"comment": "DOMAINS",
@@ -88,12 +115,22 @@
 		"start": {},
 		"end": {},
 		
+
+		"comment": "OUTPUT FILES",
+		
+
 		
 		"comment": "LOGIC",
 		
-		"if": "TuflowLogicPartIO",
-		"else if": "TuflowLogicPartIO",
-		"else": "TuflowLogicPartIO"
+		"if": {
+			"class": "TuflowLogicPartIO"
+		},
+		"else if": {
+			"class": "TuflowLogicPartIO"
+		},
+		"else": {
+			"class": "TuflowLogicPartIO"
+		}
 	},
 	
 	"tier_2": {
@@ -109,18 +146,50 @@
 			"set 'global validators' and they will be assigned to every part created",
 			"from that group"
 		],
+		
+		"start": {
+			"start 1d domain": {
+				"class": "TuflowDomainPartIO"
+			},
+			"start 2d domain": {
+				"class": "TuflowDomainPartIO"
+			},
+			"start time": {
+				"class": "TuflowVariablePartIO"
+			}
+		},
+		"end": {
+			"end 1d domain": {
+				"class": "TuflowDomainPartIO"
+			},
+			"end 2d domain": {
+				"class": "TuflowDomainPartIO"
+			},
+			"end time": {
+				"class": "TuflowVariablePartIO"
+			},
+			"end if": {
+				"class": "TuflowLogicPartIO"
+			}
+		},
 	
 		"comment": "GIS",
 
         "read gis": {
-        	"validators": ["TuflowPathValidator"],
         	"read gis table links": {
         		"class": "TuflowGisPartIO", 
-				"factory": "TuflowTableLinksDataFactory"
+				"factory": "TuflowTableLinksDataFactory",
+				"validators": [{"class": "TuflowPathValidator"}]
         	},
         	"read gis network": {
         		"class": "TuflowGisPartIO", 
-				"factory": "TuflowGisNetworkDataFactory"
+				"factory": "TuflowGisNetworkDataFactory",
+				"validators": [{"class": "TuflowPathValidator"}]
+        	},
+        	"read gis bc": {
+        		"class": "TuflowGisPartIO", 
+				"factory": "GisDataFactory",
+				"validators": [{"class": "TuflowPathValidator"}]
         	},
         	"read gis z shape": {},
         	"read gis z line": {},
@@ -139,9 +208,24 @@
         	}
         },
 		"output": {
+			"output folder": {
+				"class": "TuflowOutputFilePartIO"
+			},
 			"output interval (s)": {
 				"class": "TuflowVariablePartIO",
-				"validators": ["TuflowIntValidator"]
+				"validators": [{"class": "TuflowIntValidator"}]
+			}
+		},
+		"map output": {
+			"map output data types": {
+				"class": "TuflowVariablePartIO",
+				"validators": [{"class": "TuflowMultiStringValidator"}],
+				"split_char": " ",
+				"case_sensitive": "true"
+			},
+			"map output interval": {
+				"class": "TuflowVariablePartIO",
+				"validators": [{"class": "TuflowIntValidator"}]
 			}
 		}
     }

@@ -22,6 +22,8 @@ import os
 
 from chyme.utils import utils
 from . import components, parts
+from . import MODEL_OS_WINDOWS, MODEL_OS_LINUX
+from . import tuflow_utils
 from .estry import network as estry_network
 
 
@@ -42,7 +44,7 @@ class TuflowLoader():
         'tcf': 0, 'ecf': 0, 'tgc': 1, 'tbc': 2
     }
     
-    def __init__(self, filepath, se_vals=''):
+    def __init__(self, filepath, se_vals='', **kwargs):
         self.input_path = os.path.normpath(filepath)
         self.root_dir = os.path.dirname(filepath)
         self.se_vals = components.SEStore.from_string(se_vals)
@@ -56,11 +58,26 @@ class TuflowLoader():
         }
         self.logic = None
         self.controlfile_read_errors = []
+        self.kwargs = kwargs
+        
+        se_dict = self.se_vals.as_dict(include_variables=False)
+        self.resolved_input_path, was_updated = tuflow_utils.resolve_placeholders(
+            self.input_path, se_dict, se_only=True, includes_brackets=False, 
+            append_unused_vals=True, has_file_extension=True
+        )
+        q=0
         
     def load(self):
         logger.info('Loading TUFLOW model...', extra={'chyme': None})
         self.read()
         self.create_components()
+        
+        # TODO:
+        #    Now that the components are loaded, but before we process logic etc we should:
+        #    - Resolve the tcf path scenario/event names
+        #        -> We can't do this earlier because we might need the default values in the tcf
+        #    - 
+        
         logger.info('Checking logic logging stuf', extra={'chyme': {'msg': 'Checking logic'}})
         self.check_logic()
         se_and_variables = self.resolve_variables()
@@ -112,7 +129,7 @@ class TuflowLoader():
         lookup_order = [('tcf', 'control_2d'), ('ecf', 'control_1d'), ('tgc', 'geometry'), ('tbc', 'boundary')]
         lookup = dict(lookup_order)
         part_factory = parts.TuflowPartFactory()
-        part_factory.load_parts()
+        part_factory.load_part_configuration()
         logic_types = []
 
 
@@ -147,10 +164,17 @@ class TuflowLoader():
                 # Get the currently active logic type (scenario or event)
                 cur_logic = logic_types[-1] if len(logic_types) > 0 else None
                 
+                # Create a load data object to store some useful information from the
+                # load process in the TuflowPartIO object
+                part_load_data = components.LoadData.from_parent_metadata(
+                    data.line, parent_metadata=metadata, model_root=self.root_dir,
+                    model_os=self.kwargs.get('model_os', MODEL_OS_WINDOWS),
+                    tcf_name=self.kwargs.get('tcf_name', ''),
+                    input_path=self.input_path, resolved_input_path=self.resolved_input_path
+                )
                 # Create a new part based on the line contents, metadata and active logic
                 part = part_factory.create_part(
-                    data.line, metadata['filepath'], metadata['tuflow_type'], metadata['line_num'], 
-                    logic_type=cur_logic
+                    part_load_data, logic_type=cur_logic
                 )
                 # If the line is unrecognised for some reason it will be skipped, otherwise 
                 # TuflowFilePartIO object is created and added to the list of components
@@ -177,8 +201,22 @@ class TuflowLoader():
         When doing this, resolve_variables and validate will need to be re-run to ensure that
         the correct variables are being used and that necessary files validate.
         """
+        # Check if we need to setup any default variables first
+        # TODO:
+        #    Might want to check what happens. We only do this when no scenario/event
+        #    values are supplied. Do we need to do it for any missing values?
+        #    Not entirely sure how this is actually supposed to work?
+        if not self.se_vals.has_scenarios:
+            if self.components['control_2d'].default_scenarios:
+                self.se_vals.set_scenarios_from_list(
+                    self.components['control_2d'].default_scenarios
+                )
+
         # TuflowLogic object for tracking logic and checking if parts are active or not
-        logic = components.TuflowLogic(self.se_vals.stripped_scenarios, self.se_vals.stripped_events)
+        logic = components.TuflowLogic(
+            self.se_vals.stripped_scenarios(lower=True), 
+            self.se_vals.stripped_events(lower=True)
+        )
         
         def update_part_active_status(parts, logic):
             """Set the active flag for parts based on the logic status."""
@@ -209,22 +247,17 @@ class TuflowLoader():
         currently setup scenarios/events and passing the values to all TuflowComponentIO
         objects for search and replace.
         """
-        # Check if we need to setup any default variables first
-        if not self.se_vals.has_scenarios:
-            if self.components['control_2d'].default_scenarios:
-                self.se_vals.scenarios_from_list(
-                    self.components['control_2d'].default_scenarios
-                )
 
         # Now resolve some variables
         self.variables = self.components['control_1d'].get_custom_variables(self.se_vals)
         self.variables.update(self.components['control_2d'].get_custom_variables(self.se_vals))
         logger.debug('SE Vals: {}'.format(self.se_vals))
         logger.debug('Variables: {}'.format(self.variables))
-        se_and_variables = {
-            'variables': self.variables, 'scenarios': self.se_vals.scenarios, 
-            'events': self.se_vals.events
-        }
+        
+        # Combine the custom variables with the scenario/event values
+        se_and_variables = self.se_vals.as_dict(lower=True)
+        se_and_variables.update({'variables': self.variables})
+
         # Resolve variables (i.e. <<VARIABLE>> instances based on ~s~, ~e~ and Set Variable)
         for k, v in self.components.items():
             v.resolve_custom_variables(se_and_variables)

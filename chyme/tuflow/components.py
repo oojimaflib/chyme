@@ -18,7 +18,11 @@
 import logging
 logger = logging.getLogger(__name__)
 
+import hashlib, uuid
+import os
+
 from chyme.utils import utils
+from chyme.tuflow import tuflow_utils, MODEL_OS_WINDOWS
 from . import parts
 
 class TuflowComponent():
@@ -181,6 +185,96 @@ class TuflowBoundaryComponent(TuflowComponent):
         super().__init__()
         
         
+class LoadData():
+    
+    def __init__(self, raw_line, parent_dir, model_root=None, **kwargs):
+        """Create a new LoadData object from a command string and path.
+        
+        Args:
+            raw_line (str): the command line to create the load data from.
+            parent_dir (str): path to apply the command from.
+        
+        kwargs:
+            model_root=None (str): the root of the model (i.e. the 'runs' folder)
+            model_os=MODEL_OS_WINDOWS (int): the OS format of the model MODEL_OS_WINDOWS 
+                or MODEL_OS_LINUX
+            tcf_name='' (str): The name of the main tcf used to load the model.
+            
+        The tcf_name variable can be nothing as the model may not have been loaded from
+        a tcf (direct loading from, say, a tgc is fine). However, some of the parts
+        such as output folders need access to the name and cannot be created without
+        one. When created here it will should have been resolved already, i.e. any 
+        placeholders for scenarios and events (~s1~, ~e1~, etc) should have been
+        handled.
+        """
+        # Separate the command and variable parts
+        self.raw_line_as_read = raw_line.strip()
+        self.raw_line = tuflow_utils.remove_comment(raw_line).strip()
+        self.raw_command, self.raw_variable = tuflow_utils.split_line(self.raw_line)
+        
+        # Set some metadata
+        self.parent_dir = parent_dir                        # Directory of the file containing the command
+        self.parent_path = kwargs.get('parent_path', '')    # Path of the file containing the command
+        self.line_num = kwargs.get('line_num', -1)          # File line number that command was read from
+        self.parent_type = kwargs.get('parent_type', '')    # tcf, tgc, tbc, etc
+        self.parent_extension = kwargs.get('extension', '') # Extension of parent (may be 'trd' instead of 'tcf' for example)
+        self.line_hash = kwargs.get('line_hash', None)      # md5 hash for this file line
+        self.input_path = kwargs.get('input_path', '')      # Path used to load the model
+        
+        # The input path with all scenario and event placeholders resolved
+        self.resolved_input_path = kwargs.get('resolved_input_path', '')
+        
+        # TODO: Need to think about this a bit.
+        # Do we check for '.tcf' or something? What if a .tgc is used to load model, etc.
+        self.tcf_name = kwargs.get('tcf_name', self.resolved_input_path)
+        
+        # Create hash from line components if possible, or fall back on uuid
+        if self.line_hash is None:
+            if self.parent_path and self.line_num >= 0:
+                self.line_hash = hashlib.md5(
+                    '{}{}{}'.format(
+                        self.parent_path, self.raw_line_as_read, self.line_num
+                    ).encode('utf-8')
+                ).hexdigest()
+            else:
+                self.line_hash = uuid.uuid4()
+
+        # Root of model and model OS format
+        self.model_root = model_root
+        self.model_os = kwargs.get('model_os', MODEL_OS_WINDOWS)
+        self.tcf_name = kwargs.get('tcf_name', '')
+        
+    @classmethod
+    def from_parent_metadata(cls, raw_line, parent_metadata, model_root=None, **kwargs):
+        """Create the LoadData from the TuflowRawFile metadata dict.
+        
+        Just a useful constructor when creating the file in the standard full model
+        load process. Allows for a much simpler interface on the init method when 
+        creating new parts outside of the model load process. Most of this is useful
+        metadata, but not required for using parts, i.e. is more of a record of the
+        origin of the data when loading a full model.
+        """
+        if not isinstance(parent_metadata, dict):
+            raise AttributeError ('parent_metadata must be an instance of dict')
+
+        parent_dir = parent_metadata['root_dir']
+        line_hash = hashlib.md5(
+            '{}{}{}'.format(
+                parent_metadata['parent_path'], parent_metadata['command_line'], 
+                parent_metadata['line_num']
+            ).encode('utf-8')
+        ).hexdigest()
+        kwargs.update({
+            'parent_path': parent_metadata['filepath'],
+            'line_num': parent_metadata['line_num'],
+            'line_hash': line_hash,
+            'parent_type': parent_metadata['parent_type'],
+            'parent_extension': parent_metadata['extension'],
+            'model_root': model_root,
+        })
+        return cls(raw_line, parent_dir, **kwargs)
+        
+        
 class SEStore():
     """Scenario and Event logic class.
     
@@ -190,7 +284,7 @@ class SEStore():
     (e.g. s2 == index 2, e7 == index 7). s and s1, and e and e1 are always the same.
     """
     
-    def __init__(self, se_vals=''):
+    def __init__(self, se_vals=None):
         """Create a new SEStore object.
         
         se_vals dict param must be in the format::
@@ -202,12 +296,16 @@ class SEStore():
         Args:
             se_vals=None (dict): optional dict containing existing scenario/event values.
         """
-        self.scenarios = [''] * 10
-        self.events = [''] * 10
+        self._scenarios = [''] * 10
+        self._events = [''] * 10
+        self._variables = {}
+
         if se_vals and 'scenarios' in se_vals.keys() and isinstance(se_vals['scenarios'], list):
-            self.scenarios = [s.lower() for s in se_vals['scenarios']]
+            # self.scenarios = [s.lower() for s in se_vals['scenarios']]
+            self._scenarios = [s for s in se_vals['scenarios']]
         if se_vals and 'events' in se_vals.keys() and isinstance(se_vals['events'], list):
-            self.events = [e.lower() for e in se_vals['events']]
+            # self.events = [e.lower() for e in se_vals['events']]
+            self._events = [e for e in se_vals['events']]
         
     def __bool__(self):
         if not self.se_vals:
@@ -217,54 +315,84 @@ class SEStore():
         return True
     
     def __repr__(self):
-        return 'Scenarios: {} - Events: {}'.format(self.scenarios, self.events)
+        return 'Scenarios: {} - Events: {}'.format(self._scenarios, self._events)
     
     @property
     def has_scenarios(self):
-        for s in self.scenarios:
+        for s in self._scenarios:
             if s: return True
         return False
 
     @property
     def has_events(self):
-        for e in self.events:
+        for e in self._events:
             if e: return True
         return False
     
     @property
-    def stripped_scenarios(self):
-        return [s for s in self.scenarios if s]
+    def has_variables(self):
+        if self._variables:
+            return True
+        
+    def stripped_scenarios(self, lower=False):
+        if lower:
+            return [s.lower() for s in self._scenarios if s]
+        else:
+            return [s for s in self._scenarios if s]
 
-    @property
-    def stripped_events(self):
-        return [e for e in self.events if e]
+    def stripped_events(self, lower=False):
+        if lower:
+            return [e.lower() for e in self._events if e]
+        else:
+            return [e for e in self._events if e]
+    
+    def scenarios(self, lower=False):
+        if lower:
+            return [s.lower() for s in self._scenarios]
+        else:
+            return self._scenarios
+
+    def events(self, lower=False):
+        if lower:
+            return [e.lower() for e in self._events]
+        else:
+            return self._events
+        
+    def variables(self, lower=False):
+        if lower:
+            return {v_key: v_val.lower() for v_key, v_val in self._variables.items()}
+        else:
+            return self._variables
+        
+    def set_variables(self, variables):
+        self._variables = variables
     
     def set_scenarios_from_list(self, scenarios):
         """Set scenarios from a list of scenario values.
         
         """
-        for i, s in enumerate(self.scenarios):
+        for i, s in enumerate(self._scenarios):
             try:
-                self.scenarios[i] = scenarios[i]
+                self._scenarios[i] = scenarios[i]
             except IndexError:
-                self.scenarios[i] = ''
+                self._scenarios[i] = ''
 
     def set_events_from_list(self, events):
-        for i, e in enumerate(self.events):
+        for i, e in enumerate(self._events):
             try:
-                self.events[i] = events[i]
+                self._events[i] = events[i]
             except IndexError:
-                self.events[i] = ''
+                self._events[i] = ''
         
     def compare_scenarios(self, scenario_list):
         for s in scenario_list:
-            if s in self.scenarios:
+            if s in self._scenarios:
                 return True
         return False
 
     def compare_events(self, event_list):
         for e in event_list:
-            if e in self.events:
+            if e in self._events:
                 return True
         return False
     
@@ -275,7 +403,7 @@ class SEStore():
             str or None
         """
         try:
-            return self.scenarios[index]
+            return self._scenarios[index]
         except IndexError:
             return None
 
@@ -286,25 +414,64 @@ class SEStore():
             str or None
         """
         try:
-            return self.events[index]
+            return self._events[index]
         except IndexError:
             return None
         
-    def as_dict(self):
+    def as_dict(self, include_variables=True, lower=False):
         """Get a dict of the scenario and event values.
+
+        Provides a dictionary containing a dictionary for both the scenarios and events
+        where the key is the scenario or event placeholder (e.g. s1/e1):: 
+
+            dict - {
+                scenarios: {'s': 'BAS',... 's9': 'BLOCK'}, 
+                'events': {'e': 'Q0100', ... 'e9': 'DS0002'}
+            }
+        
+        Note that 's' and 's1', and 'e' and 'e1' will always be the same value!
+        
+        Args:
+            lower (bool)=False: if True the values will be lowered before returning
         
         Return:
-            dict - {scenarios: {s1: BAS,...}, events: {e1: Q0100,...}}
+            dict - containing 'scenarios' and 'events' dicts.
         """
         scens = {}
         events = {}
-        for i, s in enumerate(self.scenarios):
-            if i == 0: scens['s'] = s
-            else: scens['s{}'.format(i)] = s
-        for i, e in enumerate(self.events):
-            if i == 0: events['e'] = e
-            else: events['e{}'.format(i)] = e
-        return {'scenarios': scens, 'events': events}
+        variables = {}
+        for i, s in enumerate(self._scenarios):
+            if i == 0: 
+                scens['s'] = s.lower() if lower else s
+            else: 
+                scens['s{}'.format(i)] = s.lower() if lower else s
+        for i, e in enumerate(self._events):
+            if i == 0: 
+                events['e'] = e.lower() if lower else e
+            else: 
+                events['e{}'.format(i)] = e.lower() if lower else e
+        for k, v in self._variables.items():
+            variables[k] = v.lower() if lower else v
+        return {'scenarios': scens, 'events': events, 'variables': variables}
+    
+    def scenarios_and_events(self):
+        """Get a dict containing the scenario and event lists.
+        
+        Provides a dictionary containing the scenario/event lists in the format::
+        
+            {
+                'scenarios': ['sval', 's1val', 's2val', ... 's9val'],
+                'events': ['eval', 'e2val', 'e3val', ... 'e9val'],
+            }
+            
+        Where the item indices correspond to the number of the 's' or 'e'. I.e. the item
+        at index 2 is the 's2' or 'e2' value.
+        Note that index [0] and [1] will always contain the same value!
+        
+        Return:
+            dict - containing 'scenarios' and 'events' lists.
+        """
+        return {'scenarios': self._scenarios, 'events': self._events}
         
     @classmethod
     def from_string(cls, se_vals):
@@ -322,31 +489,66 @@ class SEStore():
             output = _process_se_vars(input)
             print(output)
             >>> {scenarios: ['BAS', 'BAS', '2m', 'Block', ''...], events: ['Q0100', 'Q0100', '12hr', ''...]}
-        
+            
         Args:
             se_vars (str): a string of scenario and event values.
             
         Return:
             dict - {scenarios: [], events: []} in the correct order according to s or e number.
+            
         """
         scens = [''] * 10
         events = [''] * 10
-        var_split = utils.remove_multiple_whitespace(se_vals).lower().split(' ')
+        temp_var_split = utils.remove_multiple_whitespace(se_vals).split(' ')
+        var_split = []
         
-        # TODO: Can the values be supplied in any order (i.e. "-s3 DEV -s1 5m")?
-        #       If so, we need to rework this to account for it!
+        # Handle the situation (which TUFLOW supports!) where scenario and event inputs can
+        # be space separated values contained within speech-marks (i.e. s2 "with space")
+        # Locates, joins and removes the speech marks
+        temp = -1
+        if temp_var_split and temp_var_split[0]:
+            for i, v in enumerate(temp_var_split):
+                if v[0] == '"':
+                    temp = i           
+                elif '"' in v and temp != -1:
+                    var_split.append(' '.join(temp_var_split[temp:i+1]))
+                    temp = -1
+                elif temp < 0:
+                    var_split.append(v)
+        else:
+            pass
+        
         for i in range(0, len(var_split), 2):
-            if len(var_split[i]) < 2:
-                if 's' in var_split[i]:
-                    scens[0] = var_split[i+1]
-                elif 'e' in var_split[i]:
-                    events[0] = var_split[i+1]
-            else:
-                if 's' in var_split[i]:
-                    scens[int(var_split[i][1:])] = var_split[i+1]
-                elif 'e' in var_split[i]:
-                    events[int(var_split[i][1:])] = var_split[i+1]
+            # Get s1/e2 (k) and value (v)
+            k = var_split[i]
+            v = var_split[i+1]
+            
+            # Remove '-' if found
+            if '-' in k:
+                k = k.replace('-', '')
 
+            # Handle the case off 's' or 'e' without a number
+            if len(k) < 2:
+                se_type = k
+                se_number = 0
+            # All others should have a number ('s1', 'e3', etc)
+            else:
+                se_type = k[0]
+                se_number = int(k[1])
+
+            # Put them in the scens/events lists.
+            # Can't have more than 10 (0 - 9)
+            if se_type == 's':
+                try:
+                    scens[se_number] = v
+                except IndexError:
+                    logger.warning('Assigning a scenario index out of range (>9)')
+            elif se_type == 'e':
+                try:
+                    events[se_number] = v
+                except IndexError:
+                    logger.warning('Assigning an event index out of range (>9)')
+                
         # Index 0 and 1 are the same, so copy them over.
         # Priortise 1 over 0
         # TODO: rather than have 0 and 1 it's probably better to start at 0 and

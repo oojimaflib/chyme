@@ -243,6 +243,7 @@ class ChymeProgressHandler(logging.Handler):
         """Connect to the ChymeProgressLogger."""
         super().__init__(*args, **kwargs)
         self.signaller = _chyme_progress_logger
+        self.propogate = False      # Lets us handler error levels lower than the default
         
     def emit(self, record):
         """Signal the ChymeProgressLogger when we get an update we're interested in."""

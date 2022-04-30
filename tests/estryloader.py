@@ -18,6 +18,7 @@
 import logging
 
 import os
+import sys
 
 from tests import CHYME_DIR, TESTS_DIR, DATA_DIR
 
@@ -53,16 +54,21 @@ def check_variables(filepath, test_vals):
     print('   1D Timestep = {}'.format(variables['timestep_1d']))
     print('   2D Timestep = {}'.format(variables['timestep_2d']))
     print('   Cell Size = {}'.format(variables['cell_size']))
-    del(loader)
+    response = 'PASSED'
     if (variables['timestep_1d'] == test_vals[1]['timestep_1d'] and 
         variables['timestep_2d'] == test_vals[1]['timestep_2d'] and 
         variables['cell_size'] == test_vals[1]['cell_size']
         ):
-        return 'PASSED'
+        if 'output_interval' in test_vals[1]:
+            print('   Output Interval = {}'.format(loader.components['control_1d'].parts[3].load_data.raw_variable))
+            if loader.components['control_1d'].parts[3].load_data.raw_variable != test_vals[1]['output_interval']:
+                response = 'FAILED'
     else:
-        return 'FAILED!!'
+        response = 'FAILED!!'
+    del(loader)
+    return response
     
-def tuflow_logic_test():
+def tuflow_logic_test(break_on_fail=False):
 
     fpath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D.tcf')
     # fpath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D_WithECF.tcf')
@@ -72,11 +78,18 @@ def tuflow_logic_test():
     
 
     se_vals_tests = [
-        # ['s NON s1   BAS s2 12m s3 Block e1   Q0100 e2 6hr', {'timestep_1d': '3.0', 'timestep_2d': '6.0', 'cell_size': '12'}],
+        # Test a range of scenario logic
         ['s NON s1   DEV s2 10m s3 Block e1   Q0100 e2 6hr', {'timestep_1d': '2.5', 'timestep_2d': '5.0', 'cell_size': '10', 'end_time': '5'}],
         ['s NON s1   DEV s2 2m s3 Block e1   Q0100 e2 12hr', {'timestep_1d': '0.5', 'timestep_2d': '1.0', 'cell_size': '2', 'end_time': '5'}],
         ['s NON s1   DEV s2 1m s3 Block e1   Q50 e2 12hr', {'timestep_1d': '0.75', 'timestep_2d': '1.5', 'cell_size': '5', 'end_time': '5'}],
         ['s NON s1   BAS s2 5m s3 Block e1   Q50 e2 6hr', {'timestep_1d': '0.25', 'timestep_2d': '0.5', 'cell_size': '1', 'end_time': '3'}],
+        
+        # # Test some weird inputs
+        ['-s NON -s1   DEV -s2 2m -s3 Block e1   Q0100 -e2 12hr', {'timestep_1d': '0.5', 'timestep_2d': '1.0', 'cell_size': '2', 'end_time': '5'}],
+        ['s NON s1   DEV s2 2m s3 "Space Block" -e1   Q0100 e2 12hr', {'timestep_1d': '0.5', 'timestep_2d': '1.0', 'cell_size': '2', 'end_time': '5', 'output_interval': '180'}],
+        
+        # Default (empty) scenario/event inputs
+        ['', {'timestep_1d': '0.5', 'timestep_2d': '1.0', 'cell_size': '2', 'end_time': '3'}],
     ]
     print('VARIABLES TEST...')
     results = []
@@ -87,26 +100,14 @@ def tuflow_logic_test():
     print('\nResults Summary:')
     for i, r in enumerate(results):
         print('Test {}: {}\t({})'.format(i, r, se_vals_tests[i][0]))
-
+        if break_on_fail and 'FAIL' in r:
+            raise AttributeError
+        
+    print('\n\n')
     
 def estry_channels():
-    filepath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D.tcf')
-    se_vals = 's NON s1   DEV s2 10m s3 Block e1   Q0100 e2 6hr'
-    loader = tuflow_loader.TuflowLoader(filepath, se_vals=se_vals)
-    loader.load()
-    network = loader.build_estry_reaches()
-    # filter = Filter(file_and=['ds5', 'csv'])
-    filter = Filter(f_or=['ds'], f_not=['3', '2', 'weir'])
-    estry_model = EstryModel(network, filter=filter)
-    # xs = estry_model.cross_sections(name_filter='ds5')
-    xs = estry_model.cross_sections()
-    
-    i=0
-
-if __name__ == '__main__':
-    # tuflow_logic_test()
+    # Setup chyme messaging listener
     import threading
-    # from chyme.tuflow import loadlog
     from chyme.utils import logsettings
     
     class MyListener(logsettings.ChymeProgressListener):
@@ -127,9 +128,71 @@ if __name__ == '__main__':
     # load_thread.start()
     # load_thread.join()
     # SINGLE THREADED
-    estry_channels()
     
     error_logs = my_listener.get_logs()
+    filepath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_1D2D.tcf')
+    se_vals = 's NON s1   DEV s2 10m s3 Block e1   Q0100 e2 6hr'
+    loader = tuflow_loader.TuflowLoader(filepath, se_vals=se_vals)
+    loader.load()
+    network = loader.build_estry_reaches()
+    # filter = Filter(file_and=['ds5', 'csv'])
+    filter = Filter(f_or=['ds'], f_not=['3', '2', 'weir'])
+    estry_model = EstryModel(network, filter=filter)
+    # xs = estry_model.cross_sections(name_filter='ds5')
+    xs = estry_model.cross_sections()
+    
+    error_logs = my_listener.get_logs()
+    i=0
+    
+
+def tuflow_fileresolver_test():
+    from chyme.tuflow import tuflow_utils as tu
+    from chyme.tuflow.components import SEStore
+
+    se_str = '-s1 BAS -s2 10m -e1 Q100'
+    filepath = os.path.join(DATA_DIR, 'estry_tuflow', 'runs', 'Model_~s1~_~e1~_1D2D_Logic.tcf')
+    loader = tuflow_loader.TuflowLoader(filepath, se_vals=se_str)
+    loader.load()
+
+    # ext_filename = 'myfile_~s1~_~e2~_~s3~_somename'
+    # int_filename = 'myfile_<<~s1~>>_<<CELL_SIZE>>_<<~e2~>>_<<~s3~>>_somename'
+    
+    # se_str = '-s NON -s1 BAS -s2 5m -s3 "DS Block" -e1   Q50 -e2 6hr'
+    # se_store = SEStore.from_string(se_str)
+    # se_vals = se_store.as_dict(include_variables=False)
+    # ext_resolved_path, was_updated = tu.resolve_placeholders(
+    #     ext_filename, se_vals, se_only=True, includes_brackets=False,
+    #     append_unused_vals=True
+    # )
+    # se_vals.update({'variables': {'CELL_SIZE': '15.5'}})
+    # int_resolved_path, was_updated = tu.resolve_placeholders(int_filename, se_vals)
+    #
+    # print('Input external path: {}'.format(ext_filename))
+    # print('Resolved path: {}'.format(ext_resolved_path))
+    # print()
+    # print('Input internal path: {}'.format(int_filename))
+    # print('Resolved path: {}'.format(int_resolved_path))
+    # print()
+    # print('Scenarios and Events')
+    # print(se_vals)
+    q=0
+    
+
+    
+def test_all():
+    estry_channels()
+    tuflow_logic_test(break_on_fail=True)
+
+if __name__ == '__main__':
+    args = sys.argv[1:] if len(sys.argv) > 1 else []
+    if args and args[0] == '-test_all':
+        test_all()
+        sys.exit()
+
+    tuflow_fileresolver_test()
+    # tuflow_logic_test()
+    # estry_channels()
+    
     q=0
     
     

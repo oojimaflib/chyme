@@ -118,8 +118,14 @@ class FileField(TuflowField):
 class VariableField(TuflowField):
     
     def __init__(self, variable, *args, **kwargs):
+        case_sensitive = kwargs.pop('case_sensitive', '')
         super().__init__()
-        self._value = variable.lower()
+        self.case_sensitive = True if case_sensitive == 'true' else False
+        self._value = variable
+        # if self.case_sensitive:
+        #     self._value = variable
+        # else:
+        #     self._value = variable.lower()
 
     def __repr__(self):
         return '{}'.format(self.value)
