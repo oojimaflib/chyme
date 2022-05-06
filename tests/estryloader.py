@@ -61,7 +61,7 @@ def check_variables(filepath, test_vals):
         ):
         if 'output_interval' in test_vals[1]:
             print('   Output Interval = {}'.format(loader.components['control_1d'].parts[3].load_data.raw_variable))
-            if loader.components['control_1d'].parts[3].load_data.raw_variable != test_vals[1]['output_interval']:
+            if loader.components['control_1d'].parts[4].load_data.raw_variable != test_vals[1]['output_interval']:
                 response = 'FAILED'
     else:
         response = 'FAILED!!'
@@ -84,10 +84,10 @@ def tuflow_logic_test(break_on_fail=False):
         ['s NON s1   DEV s2 1m s3 Block e1   Q50 e2 12hr', {'timestep_1d': '0.75', 'timestep_2d': '1.5', 'cell_size': '5', 'end_time': '5'}],
         ['s NON s1   BAS s2 5m s3 Block e1   Q50 e2 6hr', {'timestep_1d': '0.25', 'timestep_2d': '0.5', 'cell_size': '1', 'end_time': '3'}],
         
-        # # Test some weird inputs
+        # Test some weird inputs
         ['-s NON -s1   DEV -s2 2m -s3 Block e1   Q0100 -e2 12hr', {'timestep_1d': '0.5', 'timestep_2d': '1.0', 'cell_size': '2', 'end_time': '5'}],
         ['s NON s1   DEV s2 2m s3 "Space Block" -e1   Q0100 e2 12hr', {'timestep_1d': '0.5', 'timestep_2d': '1.0', 'cell_size': '2', 'end_time': '5', 'output_interval': '180'}],
-        
+
         # Default (empty) scenario/event inputs
         ['', {'timestep_1d': '0.5', 'timestep_2d': '1.0', 'cell_size': '2', 'end_time': '3'}],
     ]
@@ -154,33 +154,13 @@ def tuflow_fileresolver_test():
     loader = tuflow_loader.TuflowLoader(filepath, se_vals=se_str)
     loader.load()
 
-    # ext_filename = 'myfile_~s1~_~e2~_~s3~_somename'
-    # int_filename = 'myfile_<<~s1~>>_<<CELL_SIZE>>_<<~e2~>>_<<~s3~>>_somename'
-    
-    # se_str = '-s NON -s1 BAS -s2 5m -s3 "DS Block" -e1   Q50 -e2 6hr'
-    # se_store = SEStore.from_string(se_str)
-    # se_vals = se_store.as_dict(include_variables=False)
-    # ext_resolved_path, was_updated = tu.resolve_placeholders(
-    #     ext_filename, se_vals, se_only=True, includes_brackets=False,
-    #     append_unused_vals=True
-    # )
-    # se_vals.update({'variables': {'CELL_SIZE': '15.5'}})
-    # int_resolved_path, was_updated = tu.resolve_placeholders(int_filename, se_vals)
-    #
-    # print('Input external path: {}'.format(ext_filename))
-    # print('Resolved path: {}'.format(ext_resolved_path))
-    # print()
-    # print('Input internal path: {}'.format(int_filename))
-    # print('Resolved path: {}'.format(int_resolved_path))
-    # print()
-    # print('Scenarios and Events')
-    # print(se_vals)
     q=0
     
 
     
 def test_all():
     estry_channels()
+    # tuflow_fileresolver_test()
     tuflow_logic_test(break_on_fail=True)
 
 if __name__ == '__main__':

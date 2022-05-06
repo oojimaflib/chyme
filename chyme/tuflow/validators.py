@@ -78,6 +78,7 @@ class TuflowPathValidator(TuflowMultiValueValidator):
 
     def __init__(self, *args, **kwargs):
         self._required_extensions = kwargs.pop('required_extensions', [])
+        self.validate_dir_only = kwargs.pop('dir_only', False)
         super().__init__(self, *args, **kwargs)
         
     @property
@@ -88,15 +89,22 @@ class TuflowPathValidator(TuflowMultiValueValidator):
     def required_extensions(self, extensions):
         self._required_extensions = extensions
         
-    def validate_item(self, tuflow_path):
-        if isinstance(tuflow_path, chymepath.ChymePath) and tuflow_path.file_exists:
-            if self.required_extensions:
-                noext_path = os.path.join(tuflow_path.directory(), tuflow_path.filename(include_extension=False))
-                for ext in self.required_extensions:
-                    if not os.path.exists('{}.{}'.format(noext_path, ext)):
-                        logger.warning('Additional file extension failure: {}.{}'.format(noext_path, ext))
-                        return False
-            return True
+    def validate_item(self, file_field):
+        tuflow_path = file_field.path
+        # if isinstance(tuflow_path, chymepath.ChymePath) and tuflow_path.file_exists:
+        if isinstance(tuflow_path, chymepath.ChymePath):
+            if self.validate_dir_only:
+                exists = tuflow_path.dir_exists
+                return tuflow_path.dir_exists
+
+            elif tuflow_path.file_exists:
+                if self.required_extensions:
+                    noext_path = os.path.join(tuflow_path.directory(), tuflow_path.filename(include_extension=False))
+                    for ext in self.required_extensions:
+                        if not os.path.exists('{}.{}'.format(noext_path, ext)):
+                            logger.warning('Additional file extension failure: {}.{}'.format(noext_path, ext))
+                            return False
+                return True
         return False   
 
     

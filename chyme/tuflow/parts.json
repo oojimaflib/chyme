@@ -96,7 +96,9 @@
 			"class": "TuflowVariablePartIO",
 			"validators": [{"class": "TuflowIntValidator"}]
 		},
-
+		"store maximums and minimums": {
+			"class": "TuflowVariablePartIO"
+		},
 		"line cell selection": {
 			"class": "TuflowVariablePartIO",
 			"validators": [
@@ -118,6 +120,7 @@
 
 		"comment": "OUTPUT FILES",
 		
+		"write": {},
 
 		
 		"comment": "LOGIC",
@@ -207,15 +210,6 @@
         		"class": "TuflowVariablePartIO"
         	}
         },
-		"output": {
-			"output folder": {
-				"class": "TuflowOutputFilePartIO"
-			},
-			"output interval (s)": {
-				"class": "TuflowVariablePartIO",
-				"validators": [{"class": "TuflowIntValidator"}]
-			}
-		},
 		"map output": {
 			"map output data types": {
 				"class": "TuflowVariablePartIO",
@@ -226,6 +220,52 @@
 			"map output interval": {
 				"class": "TuflowVariablePartIO",
 				"validators": [{"class": "TuflowIntValidator"}]
+			}
+		},
+
+
+        "comment": "OUTPUT FILES",
+		"comment": [
+			"'use_tcf_name' tells the loader to use the name of the tcf file",
+			"as the filename. It will be resolved first.",
+			"",
+			"'has_name_prefix' tells the loader that the path may end in a string that",
+			"should be prepended to the filename. If has_name_prefix is 'true' and",
+			"the path does not end in a folder separator the last part of the path",
+			"after the folder separator will be prepended."
+		],
+
+		"output": {
+			"output folder": {
+				"class": "TuflowOutputFilePartIO",
+				"validators": [
+					{
+						"class": "TuflowPathValidator",
+						"kwargs": {
+							"dir_only": "true"
+						}
+					}
+				],
+				"use_tcf_name": "true"
+			},
+			"output interval (s)": {
+				"class": "TuflowVariablePartIO",
+				"validators": [{"class": "TuflowIntValidator"}]
+			}
+		},
+		"write": {
+			"write check files": {
+				"class": "TuflowOutputFilePartIO",
+				"validators": [
+					{
+						"class": "TuflowPathValidator",
+						"kwargs": {
+							"dir_only": "true"
+						}
+					}
+				],
+				"use_tcf_name": "true",
+				"has_name_prefix": "true"
 			}
 		}
     }

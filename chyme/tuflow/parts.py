@@ -264,7 +264,7 @@ class TuflowPartFiles():
         This is assumed to be the type of all of the files in the pipe chain. I think this is
         okay, and that you can't mix file types?
         """
-        return self._files[0].file.extension
+        return self._files[0].path.extension
     
     def build_data(self, *args, **kwargs):
         build_passed = True
@@ -290,7 +290,7 @@ class TuflowPartFiles():
     def resolve_custom_variables(self, custom_variables):
         # Replace pattern matches in filenames
         for f in self._files:
-            val, was_updated = tuflow_utils.resolve_placeholders(f.file.absolute_path, custom_variables)
+            val, was_updated = tuflow_utils.resolve_placeholders(f.path.absolute_path, custom_variables)
             if was_updated:
                 f.value = val
 
@@ -329,7 +329,6 @@ class TuflowPartVariables():
             if not v.validate(self.variables): return False
         return True
     
-    # def resolve_custom_variables(self, custom_variables, pattern):
     def resolve_custom_variables(self, custom_variables):
         # Replace pattern matches in variables
         for v in self._variables:
@@ -481,8 +480,15 @@ class TuflowPartIO():
         """
         output = []
         for v in validators:
-            v[1].update({'case_sensitive': self.case_sensitive})
-            output.append(v[0](**v[1]))
+            kwargs = {}
+            # Handle json-Python syntax conversion here
+            if isinstance(v[1], dict):
+                for json_key, json_val in v[1].items():
+                    if json_val == 'true': kwargs[json_key] = True
+                    elif json_val == 'false': kwargs[json_key] = False
+                    else: kwargs[json_key] = json_val
+            kwargs['case_sensitive'] = self.case_sensitive
+            output.append(v[0](**kwargs))
         return output
     
 
@@ -591,9 +597,39 @@ class TuflowOutputFilePartIO(TuflowFilePartIO):
     Includes behaviour for handling 'output folder', 'write check files', 'log folder'
     and similar commands.
     """
+    def __init__(self, load_data, **kwargs):
+        super().__init__(load_data, **kwargs)
+        self.has_name_prefix = kwargs.get('has_name_prefix', False)
+        self.name_prefix = ''
+
     def build_files(self, *args, **kwargs):
         fpath = self.load_data.raw_variable
-        self.files = TuflowPartFiles(fpath, self.load_data.parent_path, *args, self.factory, **kwargs)
+
+        fname = 'Unknown'
+        if self.load_data.resolved_input_path:
+            f = os.path.split(self.load_data.resolved_input_path)[1]
+            fname = os.path.splitext(f)[0]
+            
+        # Config says it can have a name prefix i.e. there is might be a string after the 
+        # final path separator.
+        # This is allowed for check files when a string is provided for prepending to the
+        # output name by excluding a final path separator ('\' or '/').
+        if self.has_name_prefix:
+            split_path = os.path.split(fpath)
+            end_path = split_path[-1]
+            if end_path not in ['.', '..', '']:
+                self.name_prefix = end_path
+                # Add the prefix to the name
+                fname = '{}{}'.format(end_path, fname)
+                # Remove the prefix component from the input path
+                # (replaces last occurance of the prefix with '')
+                fpath = ''.join(fpath.rsplit(end_path, 1))
+
+        fpath = os.path.join(fpath, fname)
+        self.files = TuflowPartFiles(
+            [fpath], self.load_data.parent_path, *args, self.factory, 
+            has_no_extension=True, **kwargs
+        )
 
         
 class TuflowDomainPartIO(TuflowPartIO):
@@ -607,6 +643,7 @@ class TuflowDomainPartIO(TuflowPartIO):
 
 class TuflowLogicPartIO(TuflowPartIO):
     """Tuflow part for handling scenario and event logic commands."""
+
     ALLOWED_TYPES = ['scenario', 'event']
     IF = 0
     ELSE_IF = 1

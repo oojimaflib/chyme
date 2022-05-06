@@ -16,6 +16,7 @@ class ChymePath():
         self._absolute_path = abs_path
         
         # Handle kwargs here
+        self.has_no_extension = kwargs.get('has_no_extension', False)
         
     def __bool__(self):
         return os.path.exists(self.absolute_path)
@@ -27,6 +28,10 @@ class ChymePath():
     @property
     def file_exists(self):
         return os.path.exists(self.absolute_path)
+    
+    @property
+    def dir_exists(self):
+        return os.path.isdir(os.path.dirname(self.absolute_path))
         
     @property
     def extension(self):

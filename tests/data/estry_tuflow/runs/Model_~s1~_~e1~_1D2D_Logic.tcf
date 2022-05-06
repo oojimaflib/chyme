@@ -44,8 +44,11 @@ Start 1D Domain
 
 	!_________________________________________________________________________________________________________________
 	! OUTPUT CONTROL AND FORMAT COMMANDS
-	Output Folder == ..\results\1d								! Specifies the location of the 1D output files
-	Write Check Files == ..\check\1d\							! Specifies the location of the 1D check files and prefixes them with the .tcf filename
+	Output Folder == ..\..\..\test_output\estry_tuflow\results\<<~s1~>>\<<~e1~>>\1d\ 	! Specifies the location of the 1D output files
+
+	! Specifies the location of the 1D check files and prefixes them with the .tcf filename
+	! In the 1d folder (because there's a '\' on the end)
+	Write Check Files == ..\..\..\test_output\estry_tuflow\check\<<~s1~>>\<<~e1~>>\1d\
 	If Scenario == BAS | Block | "Space Block"
 		Output Interval (s) == 180									! Writes the 1D output every 3 minutes. Note the (s) is required to indicate the value is in seconds
 	Else
@@ -91,9 +94,15 @@ End If
 
 !__________________________________________________________________________________________________________
 ! OUTPUT CONTROL AND FORMAT COMMANDS
-Log Folder == log								! Redirects log output files (eg. .tlf and _messages.mif files) to the folder 'log'
-Output Folder == ..\results\M04\2d				! Specifies the location of the 2D output files
-Write Check Files == ..\check\2d\				! Specifies the location of the 2D check files and prefixes them with the .tcf filename
+! Output folders
+Log Folder == ..\..\..\test_output\estry_tuflow\log									! Redirects log output files (eg. .tlf and _messages.mif files) to the folder 'log'
+
+Output Folder == ..\..\..\test_output\estry_tuflow\results\<<~s1~>>\<<~e1~>>\2d	! Specifies the location of the 2D output files
+
+! Specifies the location of the 2D check files (prefixes with '2d_' because there's no '\' on the end)
+Write Check Files == ..\..\..\test_output\estry_tuflow\check\<<~s1~>>\<<~e1~>>\2d_  
+
+! Output commands
 Map Output Data Types == h V q d MB1 MB2		! Output water levels, velocities, unit flows, depths and mass balance map output types
 Start Map Output == 0							! Starts writing the map output from 0 hours
 Map Output Interval == 300						! Outputs SMS map data every 300 seconds (5 minutes)

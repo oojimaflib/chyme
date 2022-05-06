@@ -60,11 +60,12 @@ class TuflowComponent():
     def validate(self, variables):
         """
         """
+        success = True
         for part in self.parts:
             if not part.validate(variables): 
                 logger.info('Validation failure: {}'.format(part))
-                return False
-        return True
+                success = False
+        return success
     
     def build_data(self):
         build_passed = True
@@ -150,12 +151,13 @@ class TuflowControlComponent2D(TuflowComponent):
         Return:
         
         """
+        success = True
         for k, v in self.parts.items():
             for part in v:
                 if not part.validate(variables): 
                     logger.info('Validation failure: {}'.format(part))
-                    return False
-        return True
+                    success = False
+        return success
     
     def build_data(self):
         build_passed = True

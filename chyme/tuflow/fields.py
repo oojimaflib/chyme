@@ -20,9 +20,11 @@ class TuflowPath(chymepath.ChymePath):
     
     def __init__(self, original_path, parent_path, *args, **kwargs):
         
+        has_no_extension = kwargs.get('has_no_extension', False)
+
         # A file extension is not required for mapinfo file paths in TUFLOW. If no extension is 
         # found we assume mapinfo and put 'mif' on the end
-        if len(os.path.splitext(original_path)) < 2:
+        if not has_no_extension and len(os.path.splitext(original_path)) < 2:
             original_path += '.mif'
 
         if 'root_dir' in kwargs.keys():
@@ -33,6 +35,9 @@ class TuflowPath(chymepath.ChymePath):
 
         super().__init__(abs_path, *args, **kwargs)
         self.parent_path = parent_path
+        
+    def __repr__(self):
+        return self.absolute_path
 
 
 class TuflowField():
@@ -71,23 +76,23 @@ class FileField(TuflowField):
         self.original_path = original_path
         self._data_loader = kwargs.get('data_loader', None)
         self._required_extensions = kwargs.get('required_extensions', [])
-        self._file = TuflowPath(original_path, parent_path, *args, **kwargs)
+        self._path = TuflowPath(original_path, parent_path, *args, **kwargs)
         self._value = original_path
         self.data = None
 
     def __repr__(self):
-        return self._file.filename(include_extension=True)
+        return self._path.filename(include_extension=True)
     
     @property
-    def file(self):
-        return self._file
+    def path(self):
+        return self._path
     
     # TODO: Need to fix how this works to massively improve how path updates happen!
     #       Basically not implemented at all at the moment in TuflowPath or Path classes.
     @TuflowField.value.setter
     def value(self, value):
         self._value = value
-        self._file = TuflowPath(value, self._file.parent_path)
+        self._path = TuflowPath(value, self._path.parent_path)
 
     @property
     def required_extensions(self):
@@ -102,7 +107,7 @@ class FileField(TuflowField):
             logger.warning('No data loader associated with: {}'.format(self))
             return True
         else:
-            data_loader = self._data_loader(self.file, *args, **kwargs)
+            data_loader = self._data_loader(self.path, *args, **kwargs)
             if data_loader.is_lazy:
                 logger.debug('Lazy flag set. Data loading is delayed for: {}'.format(self))
                 return True
@@ -122,10 +127,6 @@ class VariableField(TuflowField):
         super().__init__()
         self.case_sensitive = True if case_sensitive == 'true' else False
         self._value = variable
-        # if self.case_sensitive:
-        #     self._value = variable
-        # else:
-        #     self._value = variable.lower()
 
     def __repr__(self):
         return '{}'.format(self.value)

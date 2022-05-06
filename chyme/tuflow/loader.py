@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 import hashlib
 import os
+import re
 
 from chyme.utils import utils
 from . import components, parts
@@ -60,24 +61,27 @@ class TuflowLoader():
         self.controlfile_read_errors = []
         self.kwargs = kwargs
         
+        
+        # Resolve the placeholders in the filename
         se_dict = self.se_vals.as_dict(include_variables=False)
         self.resolved_input_path, was_updated = tuflow_utils.resolve_placeholders(
             self.input_path, se_dict, se_only=True, includes_brackets=False, 
             append_unused_vals=True, has_file_extension=True
         )
-        q=0
+
+        # TODO: Should we do this or do we not care?
+        # Encourage user to provide values for all placeholders. May not be able to
+        # load the model properly if they don't?
+        # Currently handled as a warning rather than an error
+        if re.search('~[se]\d?~', self.resolved_input_path):
+            msg = 'Values have not been provided for all placeholders (s/e) in filename'
+            logger.warning(msg, extra={'chyme': None})
+            # raise AttributeError(msg)
         
     def load(self):
         logger.info('Loading TUFLOW model...', extra={'chyme': None})
         self.read()
         self.create_components()
-        
-        # TODO:
-        #    Now that the components are loaded, but before we process logic etc we should:
-        #    - Resolve the tcf path scenario/event names
-        #        -> We can't do this earlier because we might need the default values in the tcf
-        #    - 
-        
         logger.info('Checking logic logging stuf', extra={'chyme': {'msg': 'Checking logic'}})
         self.check_logic()
         se_and_variables = self.resolve_variables()
@@ -255,7 +259,7 @@ class TuflowLoader():
         logger.debug('Variables: {}'.format(self.variables))
         
         # Combine the custom variables with the scenario/event values
-        se_and_variables = self.se_vals.as_dict(lower=True)
+        se_and_variables = self.se_vals.as_dict(lower=False)
         se_and_variables.update({'variables': self.variables})
 
         # Resolve variables (i.e. <<VARIABLE>> instances based on ~s~, ~e~ and Set Variable)
