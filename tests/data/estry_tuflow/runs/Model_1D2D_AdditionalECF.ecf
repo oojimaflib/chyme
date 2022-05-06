@@ -1,0 +1,9 @@
+
+!_________________________________________________________________________________________________________________
+! 1D BOUNDARY CONDITIONS
+Read GIS BC == ..\model\gis\1d_bc_M04_001_P.shp	! Reads in the 1D boundary conditions
+
+!_________________________________________________________________________________________________________________
+! 1D WATER LEVEL LINES
+Read GIS WLL == ..\model\gis\1d_wll_M04_001_L.shp			! GIS layers used to display the 1D results in 2D map output result files
+Read GIS WLL Points == ..\model\gis\1d_wllp_M04_001_P.shp	! GIS layer defining the elevation and bed resistance of the 1D channel, used to provide a better representation of velocity and flood hazard in mapped outputs

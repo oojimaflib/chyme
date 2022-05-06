@@ -17,8 +17,6 @@
 import logging
 logger = logging.getLogger(__name__)
 
-import os
-import uuid
 
 from chyme.tuflow import GDAL_AVAILABLE, OGR_DRIVERS
 from chyme.tuflow.estry import files as estry_files
@@ -26,23 +24,10 @@ from chyme.tuflow.estry import files as estry_files
 # Simple DBF file reader used for testing
 # Could be a fallback option when GDAL not available?
 # from dbfread import DBF
+
 if GDAL_AVAILABLE: # Setting import status is handled in tuflow.__init__
     from osgeo import gdal, ogr, osr
 
-# try:
-#     from osgeo import gdal
-#     from osgeo import ogr
-# except ImportError as e:
-#     GDAL_AVAILABLE = False
-#     logger.warning('GDAL Import Failed!')
-    
-# OGR_DRIVERS = {
-#     'shp': 'ESRI Shapefile',
-#     'mif': 'MapInfo File',
-#     'mid': 'MapInfo File',
-#     'sqlite': 'SQLite',
-#     'sqlite3': 'SQLite',
-# }
 
 class GisData():
     
@@ -66,8 +51,18 @@ class GisData():
 class GisDataFactory():
     
     def __init__(self, file, file_variables, *args, **kwargs):
-        self.file = file
-        self.file_variables = file_variables
+        self.file = file                            # TuflowFileField
+        self.file_variables = file_variables        # TuflowVariables associated with the file
+        self._lazy_load = True                      # If True, data will not be automatically loaded at read
+        self._data_loaded = False                   # Set to True once data has been loaded
+        
+    @property
+    def is_lazy(self):
+        return self._lazy_load
+    
+    @property
+    def is_loaded(self):
+        return self._data_loaded
         
     def build_data(self, *args, **kwargs):
         gis_data = GisData()
@@ -103,16 +98,14 @@ class GisDataFactory():
                 })
                 # Let the subclass do any processing it wants on the data
                 gis_data = self.process_fields(field_data, gis_data)
+        
+        if success: self._data_loaded = True
         return success, gis_data
     
     def add_associated_gis_data(self):
         return None
     
     def process_fields(self, field_data, gis_data):
-        # Assume ID is always the first index of the list.
-        # Not always true, but safer than using the field name which can be anything
-        # if field_data[0] is None or not field_data[0].strip():
-        #     gis_data.field_data[-1][0] = '{}'.format(uuid.uuid4())
         return gis_data
         
 
@@ -120,37 +113,26 @@ class TuflowGisNetworkDataFactory(GisDataFactory):
     
     def __init__(self, files, file_variables, *args, **kwargs):
         super().__init__(files, file_variables, *args, **kwargs)
+        self._lazy_load = False
 
-    # def process_fields(self, field_data, gis_data):
-    #     gis_data = super().process_fields(field_data, gis_data)
-    #     if field_data[0] is None or not field_data[0].strip():
-    #         if field_data[1].lower() == 'x':
-    #             gis_data.field_data[-1][0] = 'X_{}'.format(uuid.uuid4())
-    #         else:
-    #             gis_data = super().process_fields(field_data, gis_data)
-    #     return gis_data
-        
-    # def build_data(self, *args, **kwargs):
-    #     """
-    #     """
-    #     return super().build_data(*args, **kwargs)
 
 class TuflowTableLinksDataFactory(GisDataFactory):
     
     def __init__(self, file, file_variables, *args, **kwargs):
         super().__init__(file, file_variables, *args, **kwargs)
-        
-    # def build_data(self, *args, **kwargs):
-    #     return super().build_data(*args, **kwargs)
+        self._lazy_load = False
     
     def add_associated_gis_data(self):
         return {'name': 'source', 'type': []}
     
     def process_fields(self, field_data, gis_data):
         reach_section = estry_files.EstryCrossSection(self.file.absolute_path)
-        reach_section.setup_metadata(field_data)
-        reach_section.load_rowdata()
-        gis_data.associated_data['source'].append(reach_section)
+        success = reach_section.setup_metadata(field_data)
+        if not success:
+            logger.warning('Failed to open csv file: {}'.format(reach_section.metadata.source))
+        else:
+            reach_section.load_rowdata()
+            gis_data.associated_data['source'].append(reach_section)
         return gis_data
 
         

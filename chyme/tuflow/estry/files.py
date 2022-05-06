@@ -100,7 +100,7 @@ class EstryCrossSection(EstryComponent):
             return self._section_type
 
         @section_type.setter
-        def section_type(self, stype, allowed_types=['xz', 'hw', 'cs']):
+        def section_type(self, stype, allowed_types=('xz', 'hw', 'cs')):
             stype = utils.remove_multiple_whitespace(stype).lower()
             if stype in allowed_types:
                 self._section_type = stype
@@ -184,7 +184,9 @@ class EstryCrossSection(EstryComponent):
         """
         self.metadata = EstryCrossSection.MetaData(self.parent_path)
         self.metadata.source = metadata[self.ROW_TYPES.index('source')]
-        success = self.metadata.section_type = metadata[self.ROW_TYPES.index('type')]
+        success = os.path.exists(self.metadata.source)
+        if success:
+            success = self.metadata.section_type = metadata[self.ROW_TYPES.index('type')]
         if not success:
             self._valid = False
         else:
@@ -196,6 +198,7 @@ class EstryCrossSection(EstryComponent):
                 self.metadata.skew = metadata[self.ROW_TYPES.index('skew')]
             except IndexError:
                 pass
+        return success
         
     def load_rowdata(self):
         """Load the contents of the cross section csv file.
